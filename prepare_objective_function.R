@@ -1,12 +1,10 @@
-#' Prepare a Log-Likelihood Function for Optimizing Model Parameters
+#' Prepare an Objective Function for Optimizing Model Parameters
 #'
-#' This function processes the observed count data in bins and precomputes
-#' data structures needed to calculate the log-likelihood efficiently. It returns
-#' a function that can compute the log-likelihood given the probability density
-#' function (PDF) values at specified lengths. The returned function can be used
-#' with different model-generated PDFs to optimize model parameters by maximizing
-#' the log-likelihood.
+#' This function returns an objective function that, given a set of parameters,
+#' calculates he negative log-likelihood of the catch and adds it to a penalty
+#' term that penalizes deviations from the observed yield.
 #'
+#' @param params A MizerParams object
 #' @param df A data frame containing the observed binned count data. It must contain
 #'   the following columns:
 #'   \itemize{
@@ -15,39 +13,16 @@
 #'     \item \code{count}: The observed count for each bin.
 #'   }
 #'
-#' @return A function that computes the log-likelihood given two arguments:
-#'   \describe{
-#'     \item{\code{lengths}}{A numeric vector of the lengths at which the PDF
-#'     is evaluated.}
-#'     \item{\code{pdf_values}}{A numeric vector of PDF values at those lengths,
-#'     which must correspond to \code{lengths}.}
-#'   }
-#'   The returned function calculates the log-likelihood for the provided PDF values
-#'   over the observed binned data.
+#' @return The objective function
 #'
-#' @examples
-#' # Example usage of prepare_log_likelihood:
-#' observed_data <- data.frame(
-#'   length = c(1.0, 3.0, 6.0, 8.0),  # Bin starts
-#'   dl = c(1.0, 1.5, 0.5, 2.0),      # Bin widths (bins of different sizes)
-#'   count = c(10, 20, 15, 5)         # Observed counts
-#' )
-#'
-#' # Prepare the log-likelihood function
-#' log_likelihood_fn <- prepare_log_likelihood(observed_data)
-#'
-#' # Use the log-likelihood function with model-generated PDFs
-#' lengths <- seq(1, 10, by = 0.1)
-#' pdf_values <- dnorm(lengths, mean = 5, sd = 2)  # Example PDF (Normal distribution)
-#'
-#' # Calculate the log-likelihood
-#' log_likelihood_value <- log_likelihood_fn(lengths, pdf_values)
-#' print(log_likelihood_value)
-#'
-#' @seealso \code{\link[stats]{dnorm}}, \code{\link[base]{optim}}
-#'
-#' @export
-prepare_log_likelihood <- function(df) {
+prepare_objective_function <- function(params, df) {
+
+    # Validate MizerParams object
+    params <- validParams(params)
+    sp <- params@species_params
+
+    # We use lengths instead of weights in the catch data
+    lengths <- (params@w / sp$a)^(1/sp$b)
 
     # Validate data frame
     if (!all(c('length', 'dl', 'count') %in% names(df))) {
@@ -90,8 +65,8 @@ prepare_log_likelihood <- function(df) {
     # Precompute bin widths
     bin_widths <- full_bins$bin_end - full_bins$bin_start
 
-    # Return a function that computes the log-likelihood given a PDF
-    function(lengths, pdf_values) {
+    # Function that computes the log-likelihood given a PDF
+    log_likelihood_fn <- function(lengths, pdf_values) {
         # lengths: Numeric vector of lengths at which the PDF is evaluated
         # pdf_values: Numeric vector of PDF values at those lengths
 
@@ -124,5 +99,29 @@ prepare_log_likelihood <- function(df) {
         LL <- data_log_likelihood_constant + sum(counts * log(bin_probs))
 
         return(LL)
+    }
+
+    # Return the objective function
+    function(pars) {
+
+        # Update the model using the new values of the parameters
+        params <- update_params(params, pars)
+
+        # Get the catch PDF from the model
+        pdf_values <- params@initial_n * getFMort(params) * params@dw
+
+        # Compute the negative log-likelihood of the catch
+        neg_log_likelihood <- -log_likelihood_fn(lengths, pdf_values)
+
+        # Handle cases where the log-likelihood is infinite or NaN
+        if (is.infinite(neg_log_likelihood) || is.nan(neg_log_likelihood)) {
+            neg_log_likelihood <- .Machine$double.xmax
+        }
+
+        # Add a penalty for deviation from observed yield
+        penalty <- neg_log_likelihood +
+            10^8 * log(getYield(params) / params@gear_params$yield_observed)^2
+
+        return(penalty)
     }
 }
