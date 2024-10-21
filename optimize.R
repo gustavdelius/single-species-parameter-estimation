@@ -33,7 +33,7 @@ sp$gamma <- sp$gamma * Q / Q_new
 sp$a <- 0.0079
 sp$b <- 3.05
 # We use lengths instead of weights in the catch data
-model_lengths <- (w(p) / sp$a)^(1/sp$b)
+lengths <- (w(p) / sp$a)^(1/sp$b)
 
 # Observed biomass
 sp$biomass_observed <- 0.713
@@ -65,11 +65,11 @@ catch <- readRDS("catch.rds")
 log_likelihood_fn <- prepare_log_likelihood(catch)
 
 # Initial parameter estimates
-initial_params <- c(l50 = gp$l50, ratio = gp$l25 / gp$l50, M = 0)
+initial_params <- c(l50 = gp$l50, ratio = gp$l25 / gp$l50, M = 0, U = 10)
 
 # Set parameter bounds (if necessary)
-lower_bounds <- c(l50 = 5, ratio = 0.1, M = 0)
-upper_bounds <- c(l50 = Inf, ratio = 0.99, M = Inf)
+lower_bounds <- c(l50 = 5, ratio = 0.1, M = 0, U = 1)
+upper_bounds <- c(l50 = Inf, ratio = 0.99, M = Inf, U = 20)
 
 # Perform the optimization
 optim_result <- optim(
@@ -101,13 +101,12 @@ plot(hist_data$length, hist_data$count, type = 'h', lwd = 2, col = 'blue',
 
 # Generate fitted PDF with optimal parameters
 pdf_values <- catch_pdf(optimal_params)
-pdf_lengths <- as.numeric(names(pdf_values))
 
 # Scale the PDF for visualization
 pdf_values_scaled <- pdf_values * max(hist_data$count) / max(pdf_values)
 
 # Add the fitted PDF to the plot
-lines(pdf_lengths, pdf_values_scaled, col = 'red', lwd = 2)
+lines(lengths, pdf_values_scaled, col = 'red', lwd = 2)
 legend('topright', legend = c('Observed Counts', 'Fitted PDF'),
        col = c('blue', 'red'), lwd = 2)
 

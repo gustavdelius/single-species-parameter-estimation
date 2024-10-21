@@ -17,10 +17,10 @@
 #'
 #' @return A function that computes the log-likelihood given two arguments:
 #'   \describe{
-#'     \item{\code{pdf_lengths}}{A numeric vector of the lengths at which the PDF
+#'     \item{\code{lengths}}{A numeric vector of the lengths at which the PDF
 #'     is evaluated.}
 #'     \item{\code{pdf_values}}{A numeric vector of PDF values at those lengths,
-#'     which must correspond to \code{pdf_lengths}.}
+#'     which must correspond to \code{lengths}.}
 #'   }
 #'   The returned function calculates the log-likelihood for the provided PDF values
 #'   over the observed binned data.
@@ -37,11 +37,11 @@
 #' log_likelihood_fn <- prepare_log_likelihood(observed_data)
 #'
 #' # Use the log-likelihood function with model-generated PDFs
-#' pdf_lengths <- seq(1, 10, by = 0.1)
-#' pdf_values <- dnorm(pdf_lengths, mean = 5, sd = 2)  # Example PDF (Normal distribution)
+#' lengths <- seq(1, 10, by = 0.1)
+#' pdf_values <- dnorm(lengths, mean = 5, sd = 2)  # Example PDF (Normal distribution)
 #'
 #' # Calculate the log-likelihood
-#' log_likelihood_value <- log_likelihood_fn(pdf_lengths, pdf_values)
+#' log_likelihood_value <- log_likelihood_fn(lengths, pdf_values)
 #' print(log_likelihood_value)
 #'
 #' @seealso \code{\link[stats]{dnorm}}, \code{\link[base]{optim}}
@@ -91,22 +91,17 @@ prepare_log_likelihood <- function(df) {
     bin_widths <- full_bins$bin_end - full_bins$bin_start
 
     # Return a function that computes the log-likelihood given a PDF
-    function(pdf_lengths, pdf_values) {
-        # pdf_lengths: Numeric vector of lengths at which the PDF is evaluated
+    function(lengths, pdf_values) {
+        # lengths: Numeric vector of lengths at which the PDF is evaluated
         # pdf_values: Numeric vector of PDF values at those lengths
 
         # Validate inputs
-        if (length(pdf_lengths) != length(pdf_values)) {
-            stop("pdf_lengths and pdf_values must be vectors of the same length.")
+        if (length(lengths) != length(pdf_values)) {
+            stop("lengths and pdf_values must be vectors of the same length.")
         }
 
-        # Sort the PDF data by lengths
-        pdf_order <- order(pdf_lengths)
-        pdf_lengths <- pdf_lengths[pdf_order]
-        pdf_values <- pdf_values[pdf_order]
-
         # Interpolate the PDF at all bin boundaries at once
-        interpolated_pdf <- approx(pdf_lengths, pdf_values,
+        interpolated_pdf <- approx(lengths, pdf_values,
                                    xout = all_bin_boundaries, rule = 2)$y
 
         # Create a named vector for easy lookup
