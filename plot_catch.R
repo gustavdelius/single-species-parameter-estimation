@@ -6,7 +6,7 @@ plot_catch <- function(params, catch) {
         count = catch$count
     )
     plot(hist_data$length, hist_data$count, type = 'h', lwd = 2, col = 'blue',
-         xlab = 'Length', ylab = 'Count', main = 'Observed Data and Fitted PDF')
+         xlab = 'Length', ylab = 'Count', main = 'Observed and Modelled Catch')
 
     model_catch <- params@initial_n * getFMort(params) * params@dw
     # Scale the catch for visualization
@@ -16,6 +16,6 @@ plot_catch <- function(params, catch) {
 
     # Add the fitted PDF to the plot
     lines(lengths, model_catch, col = 'red', lwd = 2)
-    legend('topright', legend = c('Observed Counts', 'Fitted PDF'),
+    legend('topright', legend = c('Observed Counts', 'Modelled Counts'),
            col = c('blue', 'red'), lwd = 2)
 }

@@ -4,18 +4,28 @@
 #' calculates he negative log-likelihood of the catch and adds it to a penalty
 #' term that penalizes deviations from the observed yield.
 #'
+#' The reason that we have a function that returns the objective function
+#' instead of simply defining the objective function directly is that we want
+#' to do some pre-processing once and then use the pre-processed data in the
+#' objective function. This is more efficient than doing the pre-processing
+#' every time the objective function is called.
+#'
+#' The main preprocessing makes sure that we have a comprehensive set of bins
+#' that cover the entire size range, even though there will not be observations
+#' at all sizes. Missing observations should be interpreted as a 0 count.
+#'
 #' @param params A MizerParams object
 #' @param df A data frame containing the observed binned count data. It must contain
 #'   the following columns:
-#'   \itemize{
-#'     \item \code{length}: The start of each bin.
-#'     \item \code{dl}: The width of each bin.
-#'     \item \code{count}: The observed count for each bin.
-#'   }
+#'   * `length`: The start of each bin.
+#'   * `dl`: The width of each bin.
+#'   * `count`: The observed count for each bin.
+#' @param yield_lambda A parameter that controls the strength of the penalty for
+#'  deviation from the observed yield.
 #'
 #' @return The objective function
 #'
-prepare_objective_function <- function(params, df) {
+prepare_objective_function <- function(params, df, yield_lambda) {
 
     # Validate MizerParams object
     params <- validParams(params)
@@ -56,18 +66,23 @@ prepare_objective_function <- function(params, df) {
     counts <- full_bins$count
     N <- sum(counts)
 
-    # Precompute any data-dependent constants in the log-likelihood formula
+    # Some terms in the log-likelihood formula for the multinomial
+    # distribution are independent of the probabilities and can be precomputed
     data_log_likelihood_constant <- lgamma(N + 1) - sum(lgamma(counts + 1))
 
+    # When we calculate the likelihood, we will need to have values of the
+    # modelled catch density at all bin boundaries. We will use interpolation
+    # for that purpose
     # Collect all unique bin boundaries for interpolation
     all_bin_boundaries <- unique(c(full_bins$bin_start, full_bins$bin_end))
 
     # Precompute bin widths
     bin_widths <- full_bins$bin_end - full_bins$bin_start
 
-    # Function that computes the log-likelihood given a PDF
+    # Function that computes the log-likelihood given a probability density function
     log_likelihood_fn <- function(lengths, pdf_values) {
-        # lengths: Numeric vector of lengths at which the PDF is evaluated
+        # lengths: Numeric vector of lengths at which the density function is
+        #          calculated by mizer
         # pdf_values: Numeric vector of PDF values at those lengths
 
         # Validate inputs
@@ -86,6 +101,7 @@ prepare_objective_function <- function(params, df) {
         density_start <- interpolated_pdf[as.character(full_bins$bin_start)]
         density_end <- interpolated_pdf[as.character(full_bins$bin_end)]
 
+        # To get the probability in each bin, we need to integrate the density.
         # Approximate the integral over the bin using the trapezoidal rule
         bin_probs <- ((density_start + density_end) / 2) * bin_widths
 
@@ -105,12 +121,14 @@ prepare_objective_function <- function(params, df) {
     function(pars) {
 
         # Update the model using the new values of the parameters
+        # We use `pars` for the parameters that we are optimizing
+        # and `params` for the full MizerParams object
         params <- update_params(params, pars)
 
-        # Get the catch PDF from the model
+        # Get the catch density from the model
         pdf_values <- params@initial_n * getFMort(params) * params@dw
 
-        # Compute the negative log-likelihood of the catch
+        # Compute the negative log-likelihood of the observed catch
         neg_log_likelihood <- -log_likelihood_fn(lengths, pdf_values)
 
         # Handle cases where the log-likelihood is infinite or NaN
@@ -120,7 +138,7 @@ prepare_objective_function <- function(params, df) {
 
         # Add a penalty for deviation from observed yield
         penalty <- neg_log_likelihood +
-            10^8 * log(getYield(params) / params@gear_params$yield_observed)^2
+            yield_lambda * log(getYield(params) / params@gear_params$yield_observed)^2
 
         return(penalty)
     }

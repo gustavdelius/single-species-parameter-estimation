@@ -1,26 +1,31 @@
-# Function that updates params object with new parameter values
+#' Function that updates params object with new parameter values
+#'
+#' This function currently updates the gear selectivity parameters `l50` and
+#' `l25, the catchability, the steepness `U` of the maturity ogive and the
+#' coefficient `M` of the power-law mortality rate. It then recalculates the
+#' steady state of the model and rescales it to match the observed biomass.
+#'
+#' @param params The MizerParams object to update
+#' @param pars A named numeric vector of parameter values
+#' @return The updated MizerParams object
 update_params <- function(params, pars) {
     sp <- params@species_params
     gp <- params@gear_params
 
+    # Update the gear parameters
     gp$l50 <- pars["l50"]
     gp$l25 <- pars["ratio"] * gp$l50
     gp$catchability <- pars["catchability"]
+    gear_params(params) <- gp
+
+    # recalculate the power-law mortality rate
     sp$M <- pars["M"]
     ext_mort(params)[] <- sp$M * params@w^sp$d
 
-    # We'll test for the existence of the following parameters so that we do no
-    # need to include them in our optimisation unless we want to.
-    if (hasName(pars, "w_mat")) {
-        sp$w_mat <- pars["w_mat"]
-    }
-    if (hasName(pars, "U")) {
-        sp$w_mat25 <- sp$w_mat / 3^(1 / pars["U"])
-    }
-
+    # Update the steepness of the maturity ogive
+    sp$w_mat25 <- sp$w_mat / 3^(1 / pars["U"])
     params@species_params <- sp
     params <- setReproduction(params)
-    gear_params(params) <- gp
 
     # Calculate the new steady state ----
     params <- steadySingleSpecies(params)

@@ -1,4 +1,6 @@
 # Prepare the model
+#
+# This is just a simple model for cod, using some numbers from the Celtic Sea.
 cod_model <- function() {
     p <- newSingleSpeciesParams(
         species_name = "cod",
