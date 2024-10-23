@@ -10,6 +10,7 @@ source("plot_catch.R")
 source("cod_model.R")
 
 use_TMB <- FALSE # Set to TRUE to use the TMB version of the optimization
+use_TMB <- TRUE
 if (use_TMB) {
     # This is the TMB version of the optimization. It is faster than the optim
     # version below, and can handle more complex models.
@@ -48,16 +49,15 @@ upper_bounds <- c(l50 = Inf, ratio = 0.99, M = Inf, U = 20, catchability = Inf)
 
 if (use_TMB) {
     # Prepare the objective function. See prepare_TMB_objective_function.R for details.
-    objective_function <- prepare_TMB_objective_function(p, catch,
-                                                         yield_lambda = 1e7,
-                                                         pars = initial_params)
+    obj <- prepare_TMB_objective_function(p, catch, yield_lambda = 1e7,
+                                          pars = initial_params)
     # Perform the optimization. This starts with the initial parameter estimates and
     # iteratively updates them to minimize the objective function.
     optim_result <- nlminb(obj$par, obj$fn, obj$gr,
                            lower = lower_bounds, upper = upper_bounds,
                            control = list(trace = 1))
 } else {
-    # This is the optim version of the optimization. It is slower than the TMB
+    # This version uses numerical differentiation. It is slower than the TMB
     # version above, but is easier to use and understand.
     # Prepare the objective function. See prepare_objective_function.R for details.
     objective_function <- prepare_objective_function(p, catch, yield_lambda = 1e7)

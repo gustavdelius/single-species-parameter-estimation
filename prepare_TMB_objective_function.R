@@ -34,9 +34,6 @@ prepare_TMB_objective_function <- function(params, df, yield_lambda, pars) {
     params <- validParams(params)
     sp <- params@species_params
 
-    # We use lengths instead of weights in the catch data
-    lengths <- (params@w / sp$a)^(1/sp$b)
-
     # Validate data frame
     if (!all(c('length', 'dl', 'count') %in% names(df))) {
         stop("Data frame 'df' must contain columns 'length', 'dl', and 'count'.")
@@ -67,30 +64,36 @@ prepare_TMB_objective_function <- function(params, df, yield_lambda, pars) {
 
     # Extract counts and compute total observations
     counts <- full_bins$count
-    N <- sum(counts)
-
-    # Some terms in the log-likelihood formula for the multinomial
-    # distribution are independent of the probabilities and can be precomputed
-    data_log_likelihood_constant <- lgamma(N + 1) - sum(lgamma(counts + 1))
 
     # When we calculate the likelihood, we will need to have values of the
     # modelled catch density at all bin boundaries. We will use interpolation
     # for that purpose
     # Collect all unique bin boundaries for interpolation
-    all_bin_boundaries <- unique(c(full_bins$bin_start, full_bins$bin_end))
+    l_bin_boundaries <- unique(c(full_bins$bin_start, full_bins$bin_end))
+    # Give this in terms of weights
+    w_bin_boundaries <- sp$a * l_bin_boundaries^sp$b
 
     # Precompute bin widths
-    bin_widths <- full_bins$bin_end - full_bins$bin_start
+    w_bin_widths <- diff(w_bin_boundaries)
+
+    # Interpolate EReproAndGrowth and repro_prop to all bin boundaries
+    EReproAndGrowth <-
+        approx(w(params), getEReproAndGrowth(params), xout = w_bin_boundaries)$y
+    repro_prop <-
+        approx(w(params), repro_prop(params), xout = w_bin_boundaries)$y
 
     # Prepare data
     data_list <- list(
         counts = counts,
-        bin_widths = bin_widths,
-        bin_boundaries = all_bin_boundaries,
+        bin_widths = w_bin_widths,
+        bin_boundaries = w_bin_boundaries,
+        bin_boundary_lengths = l_bin_boundaries,
         yield = params@gear_params$yield_observed,
         biomass = sp$biomass_observed,
-        EReproAndGrowth = getEReproAndGrowth(params),
+        EReproAndGrowth = EReproAndGrowth,
+        repro_prop = repro_prop,
         w_mat = sp$w_mat,
+        d = sp$d,
         yield_lambda = yield_lambda
     )
 
