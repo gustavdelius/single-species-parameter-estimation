@@ -95,6 +95,6 @@ prepare_TMB_objective_function <- function(params, df, yield_lambda, pars) {
     )
 
     MakeADFun(data = data_list,
-              parameters = parameter_list,
+              parameters = pars,
               DLL = "objective_function")
 }
