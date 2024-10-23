@@ -8,7 +8,8 @@ vector<Type> calculate_F_mort(Type l50, Type ratio, Type catchability,
     Type sr = l50 * (c1 - ratio);
     Type s1 = l50 * log(Type(3.0)) / sr;
     Type s2 = s1 / l50;
-    vector<Type> F_mort = c1 / (c1 + exp(s1 - s2 * bin_boundary_lengths));
+    vector<Type> F_mort = catchability /
+        (c1 + exp(s1 - s2 * bin_boundary_lengths));
 
     // Check that all elements are finite and non-negative
     TMBAD_ASSERT((F_mort.array().isFinite() && (F_mort.array() >= 0)).all());
@@ -57,13 +58,19 @@ vector<Type> calculate_N(vector<Type> mort, vector<Type> growth,
     N(size) = N(size - 1) * growth(size - 1) /
         (mort(size - 1) * bin_widths(size - 1) + growth(size - 1));
 
+    // Rescale to get observed biomass
+    Type total_biomass = Type(0.0);
+    for (int i = 0; i < size; ++i) {
+        total_biomass += N(i) * bin_widths(i) *
+            (bin_boundaries(i) + bin_boundaries(i + 1)) / Type(2.0);
+    }
+    N = N * biomass / total_biomass;
+
     // Check that all elements are finite and non-negative
     TMBAD_ASSERT((N.array().isFinite() && (N.array() >= 0)).all());
 
     return N;
 }
-
-
 
 template<class Type>
 vector<Type> calculate_catch_per_bin(vector<Type> N, vector<Type> F_mort,
@@ -80,10 +87,25 @@ vector<Type> calculate_catch_per_bin(vector<Type> N, vector<Type> F_mort,
     vector<Type> catch_per_bin(num_bins);
     for (int i = 0; i < num_bins; ++i) {
         // Trapezoidal rule
-        catch_per_bin[i] = bin_widths[i] * (densities[i] + densities[i + 1]) / Type(2.0);
+        catch_per_bin[i] = bin_widths[i] *
+            (densities[i] + densities[i + 1]) / Type(2.0);
     }
     return catch_per_bin;
 }
+
+template<class Type>
+Type calculate_yield(vector<Type> catch_per_bin,
+                            vector<Type> bin_boundaries)
+{
+    // **Calculate model yield**
+    Type model_yield = Type(0.0);
+    for (int i = 0; i < catch_per_bin.size(); ++i) {
+        model_yield += catch_per_bin[i] *
+            (bin_boundaries[i] + bin_boundaries[i + 1]) / Type(2.0);
+    }
+    return model_yield;
+}
+
 
 
 template<class Type>
@@ -137,7 +159,7 @@ Type objective_function<Type>::operator() ()
     vector<Type> catch_per_bin = calculate_catch_per_bin(N, F_mort, bin_widths);
 
     // **Calculate model yield**
-    Type model_yield = catch_per_bin.sum();
+    Type model_yield = calculate_yield(catch_per_bin, bin_boundaries);
 
     // **Calculate catch probabilities**
     // Ensure Probabilities Are Positive and Sum to 1
