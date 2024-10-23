@@ -125,8 +125,10 @@ prepare_objective_function <- function(params, df, yield_lambda) {
         # and `params` for the full MizerParams object
         params <- update_params(params, pars)
 
-        # Get the catch density from the model
-        pdf_values <- params@initial_n * getFMort(params) * params@dw
+        # Get the catch density as function of weight from the model
+        pdf_values <- params@initial_n * getFMort(params)
+        # Convert to density as a function of length
+        pdf_values <- pdf_values * sp$b * params@w / lengths
 
         # Compute the negative log-likelihood of the observed catch
         neg_log_likelihood <- -log_likelihood_fn(lengths, pdf_values)
