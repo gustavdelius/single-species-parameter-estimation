@@ -8,9 +8,10 @@ install_github("sizespectrum/mizerExperimental")
 library(mizerExperimental)
 source("plot_catch.R")
 source("cod_model.R")
+source("update_params.R")
 
-use_TMB <- FALSE # Set to TRUE to use the TMB version of the optimization
 use_TMB <- TRUE
+# use_TMB <- FALSE # Uncomment this line to use the old version of the optimization
 if (use_TMB) {
     # This is the TMB version of the optimization. It is faster than the optim
     # version below, and can handle more complex models.
@@ -23,7 +24,6 @@ if (use_TMB) {
     source("prepare_TMB_objective_function.R")
 } else {
     source("prepare_objective_function.R")
-    source("update_params.R")
 }
 
 # We demonstrate this with a single-species model for cod
@@ -77,6 +77,8 @@ if (use_TMB) {
     # After the last iteration there is a pause. That is normal. Be patient.
 }
 
+optim_result$par
+
 # Set model to use the optimal parameters
 optimal_params <- update_params(p, optim_result$par)
 # and plot the model catch again against the observed catch
@@ -88,4 +90,6 @@ gp$yield_observed
 getYield(optimal_params)
 # If you want a better match you can increase the `yield_lambda` parameter
 
-
+# Biomass is matched perfectly, by design
+p@species_params$biomass_observed
+getBiomass(optimal_params)
