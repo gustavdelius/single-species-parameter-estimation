@@ -52,7 +52,7 @@ cod_model <- function() {
         l50 = 40, # made-up number
         l25 = 35, # made-up number
         catchability = 0.2, # made-up number
-        yield_observed = 0.415
+        yield_observed = 0.345
     )
     gear_params(p) <- gp
     initial_effort(p) <- 1
