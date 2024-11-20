@@ -17,14 +17,14 @@ Type objective_function<Type>::operator() ()
     DATA_VECTOR(f);             // Selectivity vector [n_bins]
     DATA_VECTOR(given_g);
     DATA_VECTOR(given_m);
-    DATA_SCALAR(delta_t);
+    DATA_INTEGER(n_steps_per_year);
 
     // Parameters and random effects
     PARAMETER_VECTOR(log_N0);           // Log of initial population size in each bin
     PARAMETER_VECTOR(log_F0);           // Log of fishing mortality scaling factor for each year
     PARAMETER_VECTOR(log_R);            // Log of recruitment for each year
-    PARAMETER_MATRIX(epsilon_g);        // Growth rate errors [n_years x n_bins]
-    PARAMETER_MATRIX(epsilon_m);        // Mortality rate errors [n_years x n_bins]
+    PARAMETER_ARRAY(epsilon_g);         // Growth rate errors [n_years x n_bins]
+    PARAMETER_ARRAY(epsilon_m);         // Mortality rate errors [n_years x n_bins]
     PARAMETER(log_sigma_g);             // Log of standard deviation for growth rate errors
     PARAMETER(log_sigma_m);             // Log of standard deviation for mortality rate errors
     PARAMETER(log_sigma_yield);         // Log of standard deviation for yield deviations
@@ -32,44 +32,54 @@ Type objective_function<Type>::operator() ()
     PARAMETER(rho_s_g);                 // Spatial correlation for growth rate errors
     PARAMETER(rho_t_m);                 // Temporal correlation for mortality rate errors
     PARAMETER(rho_s_m);                 // Spatial correlation for mortality rate errors
+    PARAMETER(log_sigma_t_g);           // Log of temporal std for growth rate errors
+    PARAMETER(log_sigma_s_g);           // Log of spatial std for growth rate errors
+    PARAMETER(log_sigma_t_m);           // Log of temporal std for mortality rate errors
+    PARAMETER(log_sigma_s_m);           // Log of spatial std for mortality rate errors
 
     // Transform parameters
-    vector<Type> N0 = exp(log_N0);      // Initial population size in each bin
-    vector<Type> F0 = exp(log_F0);      // Fishing mortality scaling factor for each year
-    vector<Type> R = exp(log_R);        // Recruitment for each year
-    Type sigma_g = exp(log_sigma_g);    // Standard deviation for growth rate errors
-    Type sigma_m = exp(log_sigma_m);    // Standard deviation for mortality rate errors
-    Type sigma_yield = exp(log_sigma_yield); // Standard deviation for yield deviations
+    vector<Type> N0 = exp(log_N0);          // Initial population size in each bin
+    vector<Type> F0 = exp(log_F0);          // Fishing mortality scaling factor for each year
+    vector<Type> R = exp(log_R);            // Recruitment for each year
+    Type sigma_yield = exp(log_sigma_yield);
+    Type sigma_t_g = exp(log_sigma_t_g);
+    Type sigma_s_g = exp(log_sigma_s_g);
+    Type sigma_t_m = exp(log_sigma_t_m);
+    Type sigma_s_m = exp(log_sigma_s_m);
+    Type delta_t = Type(1.0) / n_steps_per_year;
 
     // Initialize negative log-likelihood
     Type nll = Type(0.0);
 
-    // Process model
+    // Number of years and bins
     int n_years = years.size();
     int n_bins = bin_start.size();
-    int n_steps_per_year = 1 / delta_t;
 
-    // Initialize population matrix
-    matrix<Type> N(n_years * n_steps_per_year + 1, n_bins);
-    N.row(0) = N0;
-
-    // Calculate rate matrices
-    matrix<Type> G(n_years, n_bins);
-    matrix<Type> F(n_years, n_bins);
-    matrix<Type> Z(n_years, n_bins);
-    for(int y = 0; y < n_years; ++y) {
-        G.row(y) = given_g + epsilon_g.row(y);
-        F.row(y) = f * F0(y);
-        Z.row(y) = F.row(y) + given_m + epsilon_m.row(y);
+    // Initialize population array N
+    array<Type> N(n_years * n_steps_per_year + 1, n_bins);
+    for (int j = 0; j < n_bins; ++j) {
+        N(0, j) = N0(j);
     }
 
-    // Project population over time using the new dynamic model equation
+    // Calculate rate matrices
+    array<Type> G(n_years, n_bins);
+    array<Type> F(n_years, n_bins);
+    array<Type> Z(n_years, n_bins);
+    for (int y = 0; y < n_years; ++y) {
+        for (int j = 0; j < n_bins; ++j) {
+            G(y, j) = exp(epsilon_g(y, j)) * given_g(j);
+            F(y, j) = f(j) * F0(y);
+            Z(y, j) = exp(epsilon_m(y, j)) * given_m(j) + F(y, j);
+        }
+    }
+
+    // Project population over time using the dynamic model equation
     for(int y = 0; y < n_years; ++y) {
         int year_offset = y * n_steps_per_year;
         for(int t = 0; t < n_steps_per_year; ++t) {
             int i = year_offset + t;
             for(int j = 0; j < n_bins; ++j) {
-                Type growth_contrib = ((j == 0) ? R(y) : (G(y, j - 1) * N(i + 1, j - 1))) * delta_t / bin_width(j);
+                Type growth_contrib = (j == 0 ? R(y) : G(y, j - 1) * N(i + 1, j - 1)) * delta_t / bin_width(j);
                 Type denominator = Type(1.0) + (G(y, j) * delta_t / bin_width(j)) + (Z(y, j) * delta_t);
                 N(i + 1, j) = (N(i, j) + growth_contrib) / denominator;
             }
@@ -79,33 +89,41 @@ Type objective_function<Type>::operator() ()
     // Observation likelihoods
     for(int y = 0; y < n_years; ++y) {
         // Predicted catches in numbers
-        vector<Type> C_y(n_bins, Type(0.0));
-
-        for(int t = 0; t < n_steps_per_year; ++t) {
+        vector<Type> C_y = vector<Type>::Zero(n_bins);
+        for (int t = 0; t < n_steps_per_year; ++t) {
             int i = y * n_steps_per_year + t;
-            // Accumulate catches
-            C_y += N.row(i) * F.row(y);
+            for (int j = 0; j < n_bins; ++j) {
+                C_y(j) += N(i, j) * F(y, j) * delta_t;
+            }
         }
-
         // Calculate expected proportions
         Type total_C_y = C_y.sum();
-        vector<Type> p_y = C_y / total_C_y;
-
-        // Observation likelihood: Multinomial distribution
-        vector<Type> obs_counts_y = obs_counts.row(y);
-        nll -= dmultinom(obs_counts_y, p_y, true);
+        if (total_C_y > Type(0.0)) {
+            vector<Type> p_y = C_y / total_C_y;
+            // Observation likelihood: Multinomial distribution
+            vector<Type> obs_counts_y = obs_counts.row(y).transpose();
+            nll -= dmultinom(obs_counts_y, p_y, true);
+        }
 
         // Yield likelihood
-        Type predicted_yield_y = C_y.sum();
-        nll -= dnorm(yield(y), predicted_yield_y, sigma_yield, true);
+        Type predicted_yield_y = total_C_y;
+        nll -= dnorm(log(yield(y)), log(predicted_yield_y), sigma_yield, true);
     }
 
     // Random effects likelihoods
     using namespace density;
-    AR1_t<Type> ar1_t_g(rho_t_g);
-    AR1_t<Type> ar1_t_m(rho_t_m);
-    nll += SCALE(ar1_t_g, sigma_g)(epsilon_g);
-    nll += SCALE(ar1_t_m, sigma_m)(epsilon_m);
+
+    // Growth rate errors likelihood
+    nll += SEPARABLE(
+        SCALE(AR1(rho_t_g), sigma_t_g), // Time dimension
+        SCALE(AR1(rho_s_g), sigma_s_g)  // Space dimension
+        )(epsilon_g);
+
+    // Mortality rate errors likelihood
+    nll += SEPARABLE(
+        SCALE(AR1(rho_t_m), sigma_t_m), // Time dimension
+        SCALE(AR1(rho_s_m), sigma_s_m)  // Space dimension
+        )(epsilon_m);
 
     // Return negative log-likelihood
     return nll;

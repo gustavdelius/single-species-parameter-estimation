@@ -2,41 +2,33 @@
 # https://chatgpt.com/share/673b5cfa-c0dc-8007-a835-4bbd70e794c0
 # I added the code to use the cod model in the creation of synthetic data
 
-# Prepare data for TMB
 library(TMB)
 library(mizerExperimental)
+source("AR1.R")
+
+# Create synthetic data ----
+
+# This creates an example mizer model
 source("cod_model.R")
 p <- cod_model()
 
-# Create simulated datasets using the dynamic model
 set.seed(123)  # Set seed for reproducibility
 
-# Simulate years and size bins
+# Set years and size bins
 n_years <- 20
 years <- seq(2000, 2000 + n_years - 1)
-bin_start <- seq(10, 10000, by = 40)
+bin_start <- seq(10, 1000, by = 40)
 n_bins <- length(bin_start)
 bin_width <- rep(40, n_bins)
 
-# Define given growth and mortality rates
+# Set growth and mortality rates
 g_given <- approx(w(p), getEGrowth(p), xout = bin_start)$y
 m_given <- approx(w(p), getExtMort(p), xout = bin_start)$y
 f <- approx(w(p), getFMort(p), xout = bin_start)$y
-plot(bin_start, f, type = "l", xlab = "Weight", ylab = "Fishing Mortality Rate")
-
-# Use random walk for recruitment
-R0 <- getRDD(p)
-sigma_R <- R0  # Standard deviation for recruitment
-log_R <- numeric(n_years)
-log_R[1] <- log(100)
-for (y in 2:n_years) {
-    log_R[y] <- rho_R * log_R[y - 1] + rnorm(1, mean = 0, sd = sigma_R)
-}
-R <- exp(log_R)
+plot(bin_start, f, type = "l", xlab = "Weight", ylab = "Fishing mortality")
 
 # Define fishing mortality scaling factor
-log_F0 <- rep(log(0.1), n_years)
-F0 <- exp(log_F0)
+F0 <- rep(1, n_years)
 
 # Time step size
 delta_t <- 0.1
@@ -44,44 +36,88 @@ n_steps_per_year <- 1 / delta_t
 
 # Initialize population matrix
 N <- matrix(0, nrow = n_years * n_steps_per_year + 1, ncol = n_bins)
-N[1, ] <- N0
+N[1, ] <- approx(w(p), initialN(p)[1, ], xout = bin_start)$y
+plot(bin_start, N[1, ], type = "l", log = "y", xlab = "Weight", ylab = "Abundance")
+
+# Define separate parameters for AR(1) processes in time and bins
+rho_t_g <- 0.5   # Temporal correlation for growth rate errors
+rho_s_g <- 0.3   # Spatial correlation for growth rate errors
+sigma_t_g <- 0.4 # Standard deviation for temporal errors in growth
+sigma_s_g <- 0.4 # Standard deviation for spatial errors in growth
+
+rho_t_m <- 0.8   # Temporal correlation for mortality rate errors
+rho_s_m <- 0.2   # Spatial correlation for mortality rate errors
+sigma_t_m <- 0.4 # Standard deviation for temporal errors in mortality
+sigma_s_m <- 0.2 # Standard deviation for spatial errors in mortality
+
+# Generate AR(1) errors for growth and mortality rates
+epsilon_g <- generate_separable_AR1(n_years, n_bins, rho_t_g, rho_s_g, sigma_t_g, sigma_s_g)
+epsilon_m <- generate_separable_AR1(n_years, n_bins, rho_t_m, rho_s_m, sigma_t_m, sigma_s_m)
+
+# Rate matrices
+G <- sweep(exp(epsilon_g), 2, g_given, "*")
+plot(bin_start, G[1, ], type = "l", xlab = "Weight", ylab = "Growth rate",
+     main = "Growth rate for the first year")
+lines(bin_start, G[2, ], col = "blue")
+lines(bin_start, g_given, col = "red")
+FMort <- outer(F0, f)
+Z <- sweep(exp(epsilon_m), 2, m_given, "*") + FMort
+plot(bin_start, Z[1, ], type = "l", xlab = "Weight", ylab = "Total mortality rate",
+     main = "Total mortality rate for the first year")
+lines(bin_start, Z[2, ], col = "blue")
+lines(bin_start, m_given + FMort[1, ], col = "red")
+
+# Use random walk for recruitment
+R0 <- g_given[1] * N[1, 1]
+sigma_R <- R0 # Standard deviation for recruitment
+R <- rep(R0, n_years)
 
 # Project population over time using the dynamic model
 for (y in 1:n_years) {
     for (t in 1:n_steps_per_year) {
         i <- (y - 1) * n_steps_per_year + t
-        N_current <- N[i, ]
-        F_i <- f * F0[y]
-        Z_i <- F_i + m_given
-
-        # Update population using the new dynamic equation
-        N_next <- numeric(n_bins)
         for (j in 1:n_bins) {
-            growth_contrib <- if (j == 1) R[y] else (g_given[j - 1] * delta_t / bin_width[j - 1]) * N[i + 1, j - 1]
-            denominator <- 1 + (g_given[j] * delta_t / bin_width[j]) + (Z_i[j] * delta_t)
-            N_next[j] <- (N_current[j] + growth_contrib) / denominator
+            growth_contrib <- (if (j == 1) R[y] else (G[y, j - 1] * N[i + 1, j - 1]) * delta_t / bin_width[j])
+            denominator <- 1 + (G[y, j] * delta_t / bin_width[j]) + (Z[y, j] * delta_t)
+            N[i + 1, j] <- (N[i, j] + growth_contrib) / denominator
         }
-        N[i + 1, ] <- N_next
     }
 }
+# Load necessary library for animation
+library(gganimate)
+
+# Create a data frame for animation
+N_df <- data.frame(
+    year = rep(years, times = n_bins),
+    weight = rep(bin_start, each = n_years),
+    abundance = as.vector(N[seq(1, n_years * n_steps_per_year, by = n_steps_per_year), ])
+)
+
+# Create the plot
+Nplot <- ggplot(N_df, aes(x = weight, y = abundance, group = year)) +
+    geom_line() +
+    scale_y_log10() +
+    labs(x = "Weight", y = "Abundance", title = "Year: {closest_state}") +
+    transition_states(year, transition_length = 2, state_length = 1) +
+    ease_aes('linear')
+
+# Render the animation
+animation <- animate(Nplot, nframes = n_years, fps = 1)
+anim_save("animation.gif", animation)
 
 # Calculate total catches for each year and size bin
 C_y <- matrix(0, nrow = n_years, ncol = n_bins)
 for (y in 1:n_years) {
     for (t in 1:n_steps_per_year) {
         i <- (y - 1) * n_steps_per_year + t
-        N_current <- N[i, ]
-        F_i <- f * F0[y]
-        Z_i <- F_i + m_given
-
         # Calculate catches
-        C_i <- N_current * (F_i / Z_i) * (1 - exp(-Z_i * delta_t))
+        C_i <- N[i, ] * FMort[y, ] * delta_t
         C_y[y, ] <- C_y[y, ] + C_i
     }
 }
 
 # Simulate sample sizes for each year
-n_sample <- rpois(n_years, lambda = 1000)  # Average sample size of 1000 fish per year
+n_sample <- rpois(n_years, lambda = 10000)  # Average sample size of 1000 fish per year
 
 # Simulate counts for each year and size bin based on predicted proportions
 simulated_counts <- matrix(NA, nrow = n_years, ncol = n_bins)
@@ -89,35 +125,36 @@ for (y in 1:n_years) {
     probs <- C_y[y, ] / sum(C_y[y, ])
     simulated_counts[y, ] <- rmultinom(1, size = n_sample[y], prob = probs)
 }
-
-# Simulate yield for each year
-yield <- rowSums(C_y) + rnorm(n_years, mean = 0, sd = exp(log_sigma_yield))  # Adding noise with flexible standard deviation
-
-# Prepare simulated landings data
+# We now put the simulated counts into the data frame that real data will come in
 landings <- data.frame(
     year = rep(years, each = n_bins),
-    bin_start = rep(seq(1, n_bins), times = n_years),
+    bin_start = rep(bin_start, times = n_years),
     count = as.vector(t(simulated_counts))
 )
+y <- 4
+plot(bin_start, simulated_counts[y, ], type = "b", xlab = "Weight", ylab = "Simulated Counts",
+     main = paste("Year", years[y]), log = "y")
 
-# Prepare data for TMB
-# Organize counts into a list or matrix
-counts_list <- split(landings$count, landings$year)
-# Or create a matrix of counts [n_years x n_bins]
-counts_matrix <- simulated_counts  # Use simulated counts matrix
+# Simulate yield for each year
+sigma_yield <- 0.1
+log_sigma_yield <- log(sigma_yield)
+yield <- rowSums(C_y) * exp(rnorm(n_years, mean = 0, sd = sigma_yield))
+# Plot yield against years
+plot(years, yield, type = "b", xlab = "Year", ylab = "Yield", main = "Simulated Yield Over Time")
+lines(years, rowSums(C_y), col = "blue")
 
 # Prepare data for TMB
 data_list <- list(
     years = unique(landings$year),
     bin_start = unique(landings$bin_start),
-    bin_width = diff(c(unique(landings$bin_start), max(landings$bin_start) + 1)),  # Assuming equal widths
-    obs_counts = counts_matrix,   # Matrix of observed counts [n_years x n_bins]
+    bin_width = bin_width,
+    obs_counts = simulated_counts, # Matrix of observed counts [n_years x n_bins]
     n_sample = n_sample,           # Vector of sample sizes [n_years]
     yield = yield,                 # Simulated total yield
     f = f,                         # Selectivity vector
     given_g = g_given,             # Given growth rates for each weight class
     given_m = m_given,             # Given natural mortality rates for each weight class
-    delta_t = delta_t              # Time step size
+    n_steps_per_year = n_steps_per_year
 )
 
 # Define parameters and initial values for TMB
@@ -127,13 +164,15 @@ parameters <- list(
     log_R = rep(log(100), length(unique(landings$year))),
     epsilon_g = matrix(0, length(unique(landings$year)), n_bins),
     epsilon_m = matrix(0, length(unique(landings$year)), n_bins),
-    log_sigma_g = log(0.2),
-    log_sigma_m = log(0.2),
-    log_sigma_yield = log(5000),  # Initial guess for standard deviation of yield
+    log_sigma_yield =  log(0.2),  # Initial guess for standard deviation of yield
     rho_t_g = 0.5,  # Initial guess for temporal correlation for growth rate errors
     rho_s_g = 0.5,  # Initial guess for spatial correlation for growth rate errors
     rho_t_m = 0.5,  # Initial guess for temporal correlation for mortality rate errors
-    rho_s_m = 0.5   # Initial guess for spatial correlation for mortality rate errors
+    rho_s_m = 0.5,   # Initial guess for spatial correlation for mortality rate errors
+    log_sigma_t_g = log(sigma_t_g),
+    log_sigma_s_g = log(sigma_s_g),
+    log_sigma_t_m = log(sigma_t_m),
+    log_sigma_s_m = log(sigma_s_m)
 )
 
 # Define random effects
