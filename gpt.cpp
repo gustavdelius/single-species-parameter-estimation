@@ -18,11 +18,13 @@ Type objective_function<Type>::operator() ()
     DATA_VECTOR(given_g);
     DATA_VECTOR(given_m);
     DATA_INTEGER(n_steps_per_year);
+    DATA_VECTOR(Ns);            // Steady-state abundances [n_bins]
+    DATA_SCALAR(Rs);            // Steady-state recruitment [n_years]
 
     // Parameters and random effects
-    PARAMETER_VECTOR(log_N0);           // Log of initial population size in each bin
+    PARAMETER_VECTOR(log_N0_factor);    // Log of deviation factor from steady state abundance
     PARAMETER_VECTOR(log_F0);           // Log of fishing mortality scaling factor for each year
-    PARAMETER_VECTOR(log_R);            // Log of recruitment for each year
+    PARAMETER_VECTOR(log_R_factor);     // Log of deviation factor from steady state recruitment
     PARAMETER_ARRAY(epsilon_g);         // Growth rate errors [n_years x n_bins]
     PARAMETER_ARRAY(epsilon_m);         // Mortality rate errors [n_years x n_bins]
     PARAMETER(log_sigma_yield);         // Log of standard deviation for yield deviations
@@ -36,9 +38,9 @@ Type objective_function<Type>::operator() ()
     PARAMETER(log_sigma_s_m);           // Log of spatial std for mortality rate errors
 
     // Transform parameters
-    vector<Type> N0 = exp(log_N0);          // Initial population size in each bin
-    vector<Type> F0 = exp(log_F0);          // Fishing mortality scaling factor for each year
-    vector<Type> R = exp(log_R);            // Recruitment for each year
+    vector<Type> N0 = exp(log_N0_factor) * Ns;  // Initial population abundances
+    vector<Type> F0 = exp(log_F0);              // Fishing mortality scaling factor for each year
+    vector<Type> R = exp(log_R_factor) * Rs;    // Recruitment for each year
     Type sigma_yield = exp(log_sigma_yield);
     Type rho_t_g = invlogit(logit_rho_t_g);
     Type rho_s_g = invlogit(logit_rho_s_g);
@@ -117,15 +119,15 @@ Type objective_function<Type>::operator() ()
 
     // Growth rate errors likelihood
     nll += SEPARABLE(
-        SCALE(AR1(rho_t_g), sigma_t_g), // Time dimension
-        SCALE(AR1(rho_s_g), sigma_s_g)  // Space dimension
-        )(epsilon_g);
+        SCALE(AR1(rho_t_g), sigma_t_g),
+        SCALE(AR1(rho_s_g), sigma_s_g)
+    )(epsilon_g);
 
     // Mortality rate errors likelihood
     nll += SEPARABLE(
-        SCALE(AR1(rho_t_m), sigma_t_m), // Time dimension
-        SCALE(AR1(rho_s_m), sigma_s_m)  // Space dimension
-        )(epsilon_m);
+        SCALE(AR1(rho_t_m), sigma_t_m),
+        SCALE(AR1(rho_s_m), sigma_s_m)
+    )(epsilon_m);
 
     // Return negative log-likelihood
     return nll;

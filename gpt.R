@@ -4,7 +4,9 @@
 
 library(TMB)
 library(mizerExperimental)
+source("gpt_animate_N.R")
 source("AR1.R")
+source("gpt_project.R")
 
 # Create synthetic data ----
 
@@ -17,27 +19,42 @@ set.seed(123)  # Set seed for reproducibility
 # Set years and size bins
 n_years <- 20
 years <- seq(2000, 2000 + n_years - 1)
-bin_start <- seq(10, 1000, by = 40)
+bin_start <- exp(seq(log(10), log(p@species_params$w_max), length.out = 25))
 n_bins <- length(bin_start)
-bin_width <- rep(40, n_bins)
-
-# Set growth and mortality rates
-g_given <- approx(w(p), getEGrowth(p), xout = bin_start)$y
-m_given <- approx(w(p), getExtMort(p), xout = bin_start)$y
-f <- approx(w(p), getFMort(p), xout = bin_start)$y
-plot(bin_start, f, type = "l", xlab = "Weight", ylab = "Fishing mortality")
-
-# Define fishing mortality scaling factor
-F0 <- rep(1, n_years)
-
+bin_width <- diff(bin_start)
+bin_width <- c(bin_width, bin_width[length(bin_width)])  # Add the last bin width
 # Time step size
 delta_t <- 0.1
 n_steps_per_year <- 1 / delta_t
 
-# Initialize population matrix
-N <- matrix(0, nrow = n_years * n_steps_per_year + 1, ncol = n_bins)
-N[1, ] <- approx(w(p), initialN(p)[1, ], xout = bin_start)$y
-plot(bin_start, N[1, ], type = "l", log = "y", xlab = "Weight", ylab = "Abundance")
+# Set growth and mortality rates
+g_given <- approx(w(p), getEGrowth(p), xout = bin_start)$y
+plot(bin_start, g_given, type = "l", log = "x", xlab = "Weight", ylab = "Growth rate")
+m_given <- approx(w(p), getExtMort(p), xout = bin_start)$y
+plot(bin_start, m_given, type = "l", log = "xy", xlab = "Weight", ylab = "Natural mortality rate")
+f <- approx(w(p), getFMort(p), xout = bin_start)$y
+plot(bin_start, f, type = "l", log = "x", xlab = "Weight", ylab = "Fishing mortality")
+
+# Set initial population size
+Ns <- approx(w(p), initialN(p)[1, ], xout = bin_start)$y
+plot(bin_start, Ns, type = "l", log = "xy", xlab = "Weight", ylab = "Abundance")
+Ns <- gpt_steady(Ns[1], g_given, m_given + f, bin_width)
+lines(bin_start, Ns, col = "red")
+
+# Set recruitment
+Rs <- Ns[1] * (g_given[1] + (m_given[1] + f[1]) * bin_width[1])
+R <- rep(Rs, n_years)
+
+# Check that this is at steady state
+G <- matrix(rep(g_given, each = n_years), nrow = n_years, byrow = FALSE)
+Z <- matrix(rep(m_given + f, each = n_years), nrow = n_years, byrow = FALSE)
+N <- gpt_project(Ns, G, Z, R, n_steps_per_year)
+all.equal(N[1, ], N[n_years * n_steps_per_year + 1, ])
+
+# Random fishing mortality scaling factor
+sigma_F0 <- 0.1
+F0 <- exp(rnorm(n_years, sd = sigma_F0) - 0.5 * sigma_F0^2)
+plot(years, F0, type = "b", xlab = "Year", ylab = "Fishing mortality scaling factor")
 
 # Define separate parameters for AR(1) processes in time and bins
 rho_t_g <- 0.5   # Temporal correlation for growth rate errors
@@ -56,54 +73,34 @@ epsilon_m <- generate_separable_AR1(n_years, n_bins, rho_t_m, rho_s_m, sigma_t_m
 
 # Rate matrices
 G <- sweep(exp(epsilon_g), 2, g_given, "*")
-plot(bin_start, G[1, ], type = "l", xlab = "Weight", ylab = "Growth rate",
+plot(bin_start, G[1, ], type = "l", log = "x", xlab = "Weight", ylab = "Growth rate",
      main = "Growth rate for the first year")
 lines(bin_start, G[2, ], col = "blue")
 lines(bin_start, g_given, col = "red")
 FMort <- outer(F0, f)
 Z <- sweep(exp(epsilon_m), 2, m_given, "*") + FMort
-plot(bin_start, Z[1, ], type = "l", xlab = "Weight", ylab = "Total mortality rate",
+plot(bin_start, Z[1, ], type = "l", log = "xy", xlab = "Weight", ylab = "Total mortality rate",
      main = "Total mortality rate for the first year")
 lines(bin_start, Z[2, ], col = "blue")
 lines(bin_start, m_given + FMort[1, ], col = "red")
 
-# Use random walk for recruitment
-R0 <- g_given[1] * N[1, 1]
-sigma_R <- R0 # Standard deviation for recruitment
-R <- rep(R0, n_years)
+# Random recruitment
+sigma_R <- 0.2 # Standard deviation for recruitment
+R <- Rs * exp(rnorm(n_years, sd = sigma_R) - 0.5 * sigma_R^2)
+# Plot recruitment over time
+plot(years, R, type = "b", xlab = "Year", ylab = "Recruitment")
 
-# Project population over time using the dynamic model
-for (y in 1:n_years) {
-    for (t in 1:n_steps_per_year) {
-        i <- (y - 1) * n_steps_per_year + t
-        for (j in 1:n_bins) {
-            growth_contrib <- (if (j == 1) R[y] else (G[y, j - 1] * N[i + 1, j - 1]) * delta_t / bin_width[j])
-            denominator <- 1 + (G[y, j] * delta_t / bin_width[j]) + (Z[y, j] * delta_t)
-            N[i + 1, j] <- (N[i, j] + growth_contrib) / denominator
-        }
-    }
-}
-# Load necessary library for animation
-library(gganimate)
+# Calculate population matrix
+N <- gpt_project(Ns, G, Z, R, n_steps_per_year)
 
-# Create a data frame for animation
-N_df <- data.frame(
-    year = rep(years, times = n_bins),
-    weight = rep(bin_start, each = n_years),
-    abundance = as.vector(N[seq(1, n_years * n_steps_per_year, by = n_steps_per_year), ])
-)
-
-# Create the plot
-Nplot <- ggplot(N_df, aes(x = weight, y = abundance, group = year)) +
-    geom_line() +
-    scale_y_log10() +
-    labs(x = "Weight", y = "Abundance", title = "Year: {closest_state}") +
-    transition_states(year, transition_length = 2, state_length = 1) +
-    ease_aes('linear')
-
-# Render the animation
-animation <- animate(Nplot, nframes = n_years, fps = 1)
-anim_save("animation.gif", animation)
+# Animate N over time
+animation <- gpt_animate_N(N, years, bin_start)
+animation
+# anim_save("animation.gif", animation)
+# Let's animate the deviation from steady state instead
+N_factor <- sweep(N, 2, Ns, "/")
+animation <- gpt_animate_N(N_factor, years, bin_start, logy = FALSE)
+animation
 
 # Calculate total catches for each year and size bin
 C_y <- matrix(0, nrow = n_years, ncol = n_bins)
@@ -131,9 +128,10 @@ landings <- data.frame(
     bin_start = rep(bin_start, times = n_years),
     count = as.vector(t(simulated_counts))
 )
-y <- 4
-plot(bin_start, simulated_counts[y, ], type = "b", xlab = "Weight", ylab = "Simulated Counts",
-     main = paste("Year", years[y]), log = "y")
+y <- 5
+plot(bin_start, simulated_counts[y, ], type = "b", log = "xy",
+     xlab = "Weight", ylab = "Simulated Counts",
+     main = paste("Year", years[y]))
 
 # Simulate yield for each year
 sigma_yield <- 0.1
@@ -154,16 +152,18 @@ data_list <- list(
     f = f,                         # Selectivity vector
     given_g = g_given,             # Given growth rates for each weight class
     given_m = m_given,             # Given natural mortality rates for each weight class
-    n_steps_per_year = n_steps_per_year
+    n_steps_per_year = n_steps_per_year,
+    Ns = Ns,                       # Steady state population density
+    Rs = Rs                        # Steady state recruitment
 )
 
 # Define parameters and initial values for TMB
 parameters <- list(
-    log_N0 = rep(log(1000), n_bins),
+    log_N0_factor = rep(0, n_bins),
     log_F0 = rep(log(0.1), length(unique(landings$year))),
-    log_R = rep(log(100), length(unique(landings$year))),
-    epsilon_g = matrix(0, length(unique(landings$year)), n_bins),
-    epsilon_m = matrix(0, length(unique(landings$year)), n_bins),
+    log_R_factor = rep(0, length(unique(landings$year))),
+    epsilon_g = array(0, dim = c(length(unique(landings$year)), n_bins)),
+    epsilon_m = array(0, dim = c(length(unique(landings$year)), n_bins)),
     log_sigma_yield =  log(0.2),  # Initial guess for standard deviation of yield
     logit_rho_t_g = 0,  # Initial guess for temporal correlation for growth rate errors
     logit_rho_s_g = 0,  # Initial guess for spatial correlation for growth rate errors
@@ -176,7 +176,7 @@ parameters <- list(
 )
 
 # Define random effects
-random_effects <- c("log_R", "epsilon_g", "epsilon_m")
+random_effects <- c("epsilon_g", "epsilon_m")
 
 # Compile and load the TMB model
 compile("gpt.cpp")
@@ -200,15 +200,16 @@ summary(rep)
 best_par <- obj$env$last.par.best
 
 # Plot the estimates for N0 against size
-estimated_N0 <- exp(best_par[names(best_par) == "log_N0"])
-plot(bin_start, estimated_N0, type = "b", log = "y", xlab = "Weight", ylab = "Estimated Initial Abundance (N0)", main = "Estimated N0 vs Size")
+estimated_N0_factor <- exp(best_par[names(best_par) == "log_N0_factor"])
+plot(bin_start, estimated_N0_factor, type = "b", log = "x", xlab = "Weight", ylab = "Estimated Initial Abundance (N0)", main = "Estimated N0 vs Size")
 
 # Plot the estimates for F0 against years
 estimated_F0 <- exp(best_par[names(best_par) == "log_F0"])
 plot(years, estimated_F0, type = "b", ylab = "Estimated Fishing Mortality Scaling Factor (F0)", xlab = "Year")
+lines(years, F0, col = "blue")
 
 # Plot the estimates for R against years
-estimated_R <- exp(best_par[names(best_par) == "log_R"])
+estimated_R <- exp(best_par[names(best_par) == "log_R_factor"]) * Rs
 plot(years, estimated_R, type = "b", ylab = "Estimated Recruitment (R)", xlab = "Year")
-
+lines(years, R, col = "blue")
 
