@@ -165,10 +165,10 @@ parameters <- list(
     epsilon_g = matrix(0, length(unique(landings$year)), n_bins),
     epsilon_m = matrix(0, length(unique(landings$year)), n_bins),
     log_sigma_yield =  log(0.2),  # Initial guess for standard deviation of yield
-    rho_t_g = 0.5,  # Initial guess for temporal correlation for growth rate errors
-    rho_s_g = 0.5,  # Initial guess for spatial correlation for growth rate errors
-    rho_t_m = 0.5,  # Initial guess for temporal correlation for mortality rate errors
-    rho_s_m = 0.5,   # Initial guess for spatial correlation for mortality rate errors
+    logit_rho_t_g = 0,  # Initial guess for temporal correlation for growth rate errors
+    logit_rho_s_g = 0,  # Initial guess for spatial correlation for growth rate errors
+    logit_rho_t_m = 0,  # Initial guess for temporal correlation for mortality rate errors
+    logit_rho_s_m = 0,  # Initial guess for spatial correlation for mortality rate errors
     log_sigma_t_g = log(sigma_t_g),
     log_sigma_s_g = log(sigma_s_g),
     log_sigma_t_m = log(sigma_t_m),
@@ -191,11 +191,24 @@ obj <- MakeADFun(
 )
 
 # Optimize
-opt <- nlminb(obj$par, obj$fn, obj$gr)
+opt <- nlminb(obj$par, obj$fn, obj$gr, control = list(trace = 3))
 
 # Report results
 rep <- sdreport(obj)
 summary(rep)
 
-# Plot results if necessary
-plot(unique(landings$year), exp(parameters$log_F0), type = "b", ylab = "Fishing Mortality Scaling Factor (F0)", xlab = "Year")
+best_par <- obj$env$last.par.best
+
+# Plot the estimates for N0 against size
+estimated_N0 <- exp(best_par[names(best_par) == "log_N0"])
+plot(bin_start, estimated_N0, type = "b", log = "y", xlab = "Weight", ylab = "Estimated Initial Abundance (N0)", main = "Estimated N0 vs Size")
+
+# Plot the estimates for F0 against years
+estimated_F0 <- exp(best_par[names(best_par) == "log_F0"])
+plot(years, estimated_F0, type = "b", ylab = "Estimated Fishing Mortality Scaling Factor (F0)", xlab = "Year")
+
+# Plot the estimates for R against years
+estimated_R <- exp(best_par[names(best_par) == "log_R"])
+plot(years, estimated_R, type = "b", ylab = "Estimated Recruitment (R)", xlab = "Year")
+
+

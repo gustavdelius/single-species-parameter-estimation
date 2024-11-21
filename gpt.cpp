@@ -13,7 +13,7 @@ Type objective_function<Type>::operator() ()
     DATA_VECTOR(bin_width);
     DATA_MATRIX(obs_counts);    // Observed counts [n_years x n_bins]
     DATA_VECTOR(n_sample);      // Sample sizes [n_years]
-    DATA_VECTOR(yield);
+    DATA_VECTOR(yield);         // Yield data [n_years]
     DATA_VECTOR(f);             // Selectivity vector [n_bins]
     DATA_VECTOR(given_g);
     DATA_VECTOR(given_m);
@@ -25,13 +25,11 @@ Type objective_function<Type>::operator() ()
     PARAMETER_VECTOR(log_R);            // Log of recruitment for each year
     PARAMETER_ARRAY(epsilon_g);         // Growth rate errors [n_years x n_bins]
     PARAMETER_ARRAY(epsilon_m);         // Mortality rate errors [n_years x n_bins]
-    PARAMETER(log_sigma_g);             // Log of standard deviation for growth rate errors
-    PARAMETER(log_sigma_m);             // Log of standard deviation for mortality rate errors
     PARAMETER(log_sigma_yield);         // Log of standard deviation for yield deviations
-    PARAMETER(rho_t_g);                 // Temporal correlation for growth rate errors
-    PARAMETER(rho_s_g);                 // Spatial correlation for growth rate errors
-    PARAMETER(rho_t_m);                 // Temporal correlation for mortality rate errors
-    PARAMETER(rho_s_m);                 // Spatial correlation for mortality rate errors
+    PARAMETER(logit_rho_t_g);           // Temporal correlation for growth rate errors
+    PARAMETER(logit_rho_s_g);           // Spatial correlation for growth rate errors
+    PARAMETER(logit_rho_t_m);           // Temporal correlation for mortality rate errors
+    PARAMETER(logit_rho_s_m);           // Spatial correlation for mortality rate errors
     PARAMETER(log_sigma_t_g);           // Log of temporal std for growth rate errors
     PARAMETER(log_sigma_s_g);           // Log of spatial std for growth rate errors
     PARAMETER(log_sigma_t_m);           // Log of temporal std for mortality rate errors
@@ -42,6 +40,10 @@ Type objective_function<Type>::operator() ()
     vector<Type> F0 = exp(log_F0);          // Fishing mortality scaling factor for each year
     vector<Type> R = exp(log_R);            // Recruitment for each year
     Type sigma_yield = exp(log_sigma_yield);
+    Type rho_t_g = invlogit(logit_rho_t_g);
+    Type rho_s_g = invlogit(logit_rho_s_g);
+    Type rho_t_m = invlogit(logit_rho_t_m);
+    Type rho_s_m = invlogit(logit_rho_s_m);
     Type sigma_t_g = exp(log_sigma_t_g);
     Type sigma_s_g = exp(log_sigma_s_g);
     Type sigma_t_m = exp(log_sigma_t_m);
