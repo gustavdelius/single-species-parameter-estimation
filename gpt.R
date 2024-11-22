@@ -86,7 +86,9 @@ lines(bin_start, m_given + FMort[1, ], col = "red")
 
 # Random recruitment
 sigma_R <- 0.2 # Standard deviation for recruitment
-R <- Rs * exp(rnorm(n_years, sd = sigma_R) - 0.5 * sigma_R^2)
+log_R_factor <- rnorm(n_years, mean = -0.5 * sigma_R^2, sd = sigma_R)
+R_factor <- exp(log_R_factor)
+R <- Rs * R_factor
 # Plot recruitment over time
 plot(years, R, type = "b", xlab = "Year", ylab = "Recruitment")
 
@@ -162,6 +164,7 @@ parameters <- list(
     log_N0_factor = rep(0, n_bins),
     log_F0 = rep(log(0.1), length(unique(landings$year))),
     log_R_factor = rep(0, length(unique(landings$year))),
+    log_sigma_R_factor = log(1.0),
     epsilon_g = array(0, dim = c(length(unique(landings$year)), n_bins)),
     epsilon_m = array(0, dim = c(length(unique(landings$year)), n_bins)),
     log_sigma_yield =  log(0.2),  # Initial guess for standard deviation of yield
@@ -176,7 +179,7 @@ parameters <- list(
 )
 
 # Define random effects
-random_effects <- c("epsilon_g", "epsilon_m")
+random_effects <- c("epsilon_g", "epsilon_m", "log_R_factor")
 
 # Compile and load the TMB model
 compile("gpt.cpp")
@@ -191,7 +194,9 @@ obj <- MakeADFun(
 )
 
 # Optimize
-opt <- nlminb(obj$par, obj$fn, obj$gr, control = list(trace = 3))
+opt <- nlminb(obj$par, obj$fn, obj$gr,
+              control = list(trace = 3,
+                             rel.tol = 1e-5))
 
 # Report results
 rep <- sdreport(obj)

@@ -25,6 +25,7 @@ Type objective_function<Type>::operator() ()
     PARAMETER_VECTOR(log_N0_factor);    // Log of deviation factor from steady state abundance
     PARAMETER_VECTOR(log_F0);           // Log of fishing mortality scaling factor for each year
     PARAMETER_VECTOR(log_R_factor);     // Log of deviation factor from steady state recruitment
+    PARAMETER(log_sigma_R_factor);      // Add parameter for standard deviation
     PARAMETER_ARRAY(epsilon_g);         // Growth rate errors [n_years x n_bins]
     PARAMETER_ARRAY(epsilon_m);         // Mortality rate errors [n_years x n_bins]
     PARAMETER(log_sigma_yield);         // Log of standard deviation for yield deviations
@@ -40,7 +41,8 @@ Type objective_function<Type>::operator() ()
     // Transform parameters
     vector<Type> N0 = exp(log_N0_factor) * Ns;  // Initial population abundances
     vector<Type> F0 = exp(log_F0);              // Fishing mortality scaling factor for each year
-    vector<Type> R = exp(log_R_factor) * Rs;    // Recruitment for each year
+    Type sigma_R_factor = exp(log_sigma_R_factor);
+    vector<Type> R = exp(log_R_factor) * Rs;  // Recruitment for each year
     Type sigma_yield = exp(log_sigma_yield);
     Type rho_t_g = invlogit(logit_rho_t_g);
     Type rho_s_g = invlogit(logit_rho_s_g);
@@ -128,6 +130,9 @@ Type objective_function<Type>::operator() ()
         SCALE(AR1(rho_t_m), sigma_t_m),
         SCALE(AR1(rho_s_m), sigma_s_m)
     )(epsilon_m);
+
+    // Adjust the mean in the likelihood for log_R_factor
+    nll -= sum(dnorm(log_R_factor, -0.5 * sigma_R_factor * sigma_R_factor, sigma_R_factor, true));
 
     // Return negative log-likelihood
     return nll;
