@@ -134,6 +134,9 @@ Type objective_function<Type>::operator() ()
     // Adjust the mean in the likelihood for log_R_factor
     nll -= sum(dnorm(log_R_factor, -0.5 * sigma_R_factor * sigma_R_factor, sigma_R_factor, true));
 
+    // Report variables for diagnostics
+    REPORT(N); // Predicted population abundances
+
     // Return negative log-likelihood
     return nll;
 }

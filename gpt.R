@@ -196,25 +196,102 @@ obj <- MakeADFun(
 # Optimize
 opt <- nlminb(obj$par, obj$fn, obj$gr,
               control = list(trace = 3,
-                             rel.tol = 1e-5))
+                             rel.tol = 1e-3))
 
-# Report results
+# Diagnostic code ----
+
 rep <- sdreport(obj)
 summary(rep)
 
-best_par <- obj$env$last.par.best
+# Extract predicted population abundances and fishing mortality rates
+predicted_N <- matrix(obj$report()$N, nrow = n_years * n_steps_per_year + 1, ncol = n_bins)
 
-# Plot the estimates for N0 against size
-estimated_N0_factor <- exp(best_par[names(best_par) == "log_N0_factor"])
-plot(bin_start, estimated_N0_factor, type = "b", log = "x", xlab = "Weight", ylab = "Estimated Initial Abundance (N0)", main = "Estimated N0 vs Size")
+# Extract fixed effects and random effects estimates
+fixed_effects <- rep$par.fixed
+random_effects <- rep$par.random
 
-# Plot the estimates for F0 against years
-estimated_F0 <- exp(best_par[names(best_par) == "log_F0"])
-plot(years, estimated_F0, type = "b", ylab = "Estimated Fishing Mortality Scaling Factor (F0)", xlab = "Year")
-lines(years, F0, col = "blue")
+# Extract estimated fishing mortality scaling factors
+estimated_F0 <- exp(fixed_effects[grep("^log_F0", names(fixed_effects))])
+# Compare estimated and true F0
+plot(years, F0, type = "l", col = "red", ylim = range(c(F0, estimated_F0)),
+     xlab = "Year", ylab = "Fishing mortality scaling factor",
+     main = "True vs Estimated Fishing Mortality Scaling Factors")
+lines(years, estimated_F0, col = "blue")
+legend("topright", legend = c("True F0", "Estimated F0"), col = c("red", "blue"), lty = 1)
+# The plot shows how well the model estimated the fishing mortality scaling factors compared to the true values.
 
-# Plot the estimates for R against years
-estimated_R <- exp(best_par[names(best_par) == "log_R_factor"]) * Rs
-plot(years, estimated_R, type = "b", ylab = "Estimated Recruitment (R)", xlab = "Year")
-lines(years, R, col = "blue")
+# Extract estimated recruitment factors
+estimated_R_factor <- exp(random_effects[grep("^log_R_factor", names(random_effects))])
+# Compare estimated and true recruitment factors
+plot(years, R_factor, type = "l", col = "red", ylim = range(c(R_factor, estimated_R_factor)),
+     xlab = "Year", ylab = "Recruitment factor",
+     main = "True vs Estimated Recruitment Factors")
+lines(years, estimated_R_factor, col = "blue")
+legend("topright", legend = c("True R_factor", "Estimated R_factor"), col = c("red", "blue"), lty = 1)
+# This plot helps assess how accurately the model captured recruitment deviations over time.
+
+# Extract estimated epsilon_g and epsilon_m
+estimated_epsilon_g <- matrix(random_effects[grep("^epsilon_g", names(random_effects))],
+                              nrow = n_years, ncol = n_bins)
+estimated_epsilon_m <- matrix(random_effects[grep("^epsilon_m", names(random_effects))],
+                              nrow = n_years, ncol = n_bins)
+
+# Compare estimated and true epsilon_g
+par(mfrow = c(1, 2))
+image(1:n_years, 1:n_bins, epsilon_g, main = "True epsilon_g",
+      xlab = "Year", ylab = "Bin", col = heat.colors(12))
+image(1:n_years, 1:n_bins, estimated_epsilon_g, main = "Estimated epsilon_g",
+      xlab = "Year", ylab = "Bin", col = heat.colors(12))
+par(mfrow = c(1, 1))
+# The images visualize the growth rate errors across years and size bins for true and estimated values.
+
+# Compare estimated and true epsilon_m
+par(mfrow = c(1, 2))
+image(1:n_years, 1:n_bins, epsilon_m, main = "True epsilon_m",
+      xlab = "Year", ylab = "Bin", col = heat.colors(12))
+image(1:n_years, 1:n_bins, estimated_epsilon_m, main = "Estimated epsilon_m",
+      xlab = "Year", ylab = "Bin", col = heat.colors(12))
+par(mfrow = c(1, 1))
+# These images show the mortality rate errors and help evaluate the model's ability to recover spatial-temporal patterns.
+
+# Predicted counts based on the model
+estimated_F <- outer(estimated_F0, f)
+predicted_counts <- matrix(NA, nrow = n_years, ncol = n_bins)
+for (y in 1:n_years) {
+    # Predicted catches in numbers
+    C_y <- rep(0, n_bins)
+    for (t in 1:n_steps_per_year) {
+        i <- (y - 1) * n_steps_per_year + t
+        C_y <- C_y + predicted_N[i, ] * estimated_F[y, ] * delta_t
+    }
+    # Expected counts proportional to predicted catches
+    predicted_counts[y, ] <- C_y / sum(C_y) * n_sample[y]
+}
+
+# Plot observed vs predicted counts for a selected year
+y <- 20
+plot(bin_start, simulated_counts[y, ], type = "b", col = "red", log = "xy",
+     xlab = "Weight", ylab = "Counts",
+     main = paste("Observed vs Predicted Counts - Year", years[y]))
+lines(bin_start, predicted_counts[y, ], type = "b", col = "blue")
+legend("topright", legend = c("Observed counts", "Predicted counts"), col = c("red", "blue"), lty = 1)
+# This plot illustrates the model fit for catch counts in a specific year.
+
+# Calculate residuals between observed and predicted counts
+residuals <- simulated_counts - predicted_counts
+# Visualize residuals over years and bins
+image(1:n_years, 1:n_bins, residuals, main = "Residuals",
+      xlab = "Year", ylab = "Bin")
+# The residuals plot helps identify any patterns or biases in the model predictions.
+
+# Plot predicted population abundances for a selected year
+y <- 5
+plot(bin_start, predicted_N[(y - 1) * n_steps_per_year + 1, ], type = "b", col = "blue", log = "xy",
+     xlab = "Weight", ylab = "Predicted Abundance",
+     main = paste("Predicted Abundance - Year", years[y]))
+lines(bin_start, N[(y - 1) * n_steps_per_year + 1, ], col = "red")
+legend("topright", legend = c("Predicted Abundance", "True Abundance"), col = c("blue", "red"), lty = 1)
+
+# ...additional diagnostic code if necessary...
+# The diagnostic code above provides insights into the model's performance by comparing estimated parameters with true values and evaluating the fit between observed and predicted data.
 
