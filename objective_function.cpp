@@ -123,8 +123,6 @@ Type objective_function<Type>::operator() ()
     DATA_VECTOR(repro_prop);       // Proportion of energy allocated to reproduction
     DATA_SCALAR(w_mat);
     DATA_SCALAR(d);                // Exponent of mortality power-law
-    DATA_SCALAR(yield_lambda);     // controls the strength of the penalty for
-                                   // deviation from the observed yield.
 
     // **Parameter Section**
     PARAMETER(l50);
@@ -132,6 +130,8 @@ Type objective_function<Type>::operator() ()
     PARAMETER(M);
     PARAMETER(U);
     PARAMETER(catchability);
+    PARAMETER(log_var_yield);
+    Type var_yield = exp(log_var_yield); // Variance of the yield
 
     // Check lengths of data vectors
     TMBAD_ASSERT(bin_widths.size() == bin_boundaries.size() - 1);
@@ -172,7 +172,8 @@ Type objective_function<Type>::operator() ()
     Type nll = -dmultinom(counts, probs, true);
 
     // **Add penalty for deviation from observed yield**
-    nll += yield_lambda * pow(log(model_yield / yield), Type(2));
+    nll += pow(log(model_yield / yield), Type(2)) / (Type(2.0) * var_yield) +
+        log_var_yield / Type(2.0);
 
     TMBAD_ASSERT(nll >= 0);
     TMBAD_ASSERT(CppAD::isfinite(nll));

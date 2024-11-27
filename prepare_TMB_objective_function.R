@@ -21,14 +21,12 @@
 #'   * `length`: The start of each bin.
 #'   * `dl`: The width of each bin.
 #'   * `count`: The observed count for each bin.
-#' @param yield_lambda A parameter that controls the strength of the penalty for
-#'   deviation from the observed yield.
 #' @param pars A named list of starting values for the parameters that will be
 #'   optimized.
 #'
 #' @return The objective function
 #'
-prepare_TMB_objective_function <- function(params, df, yield_lambda, pars) {
+prepare_TMB_objective_function <- function(params, df, pars) {
 
     # Validate MizerParams object
     params <- validParams(params)
@@ -93,8 +91,7 @@ prepare_TMB_objective_function <- function(params, df, yield_lambda, pars) {
         EReproAndGrowth = EReproAndGrowth,
         repro_prop = repro_prop,
         w_mat = sp$w_mat,
-        d = sp$d,
-        yield_lambda = yield_lambda
+        d = sp$d
     )
 
     MakeADFun(data = data_list,

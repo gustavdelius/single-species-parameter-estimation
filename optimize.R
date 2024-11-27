@@ -40,17 +40,19 @@ getYield(p)
 
 # Initial parameter estimates
 gp <- gear_params(p)
-initial_params <- c(l50 = gp$l50, ratio = gp$l25 / gp$l50, M = 0, U = 10,
-                    catchability = gp$catchability)
+initial_params <- c(l50 = gp$l50, ratio = gp$l25 / gp$l50, M = 1, U = 10,
+                    catchability = gp$catchability,
+                    log_var_yield = 0)
 
 # Set parameter bounds
-lower_bounds <- c(l50 = 5, ratio = 0.1, M = 0, U = 1, catchability = 0)
-upper_bounds <- c(l50 = Inf, ratio = 0.99, M = Inf, U = 20, catchability = Inf)
+lower_bounds <- c(l50 = 5, ratio = 0.1, M = 0, U = 1, catchability = 0,
+                  log_var_yield = -Inf)
+upper_bounds <- c(l50 = Inf, ratio = 0.99, M = Inf, U = 20, catchability = Inf,
+                  log_var_yield = Inf)
 
 if (use_TMB) {
     # Prepare the objective function. See prepare_TMB_objective_function.R for details.
-    obj <- prepare_TMB_objective_function(p, catch, yield_lambda = 1e7,
-                                          pars = initial_params)
+    obj <- prepare_TMB_objective_function(p, catch, pars = initial_params)
     # Perform the optimization. This starts with the initial parameter estimates and
     # iteratively updates them to minimize the objective function.
     optim_result <- nlminb(obj$par, obj$fn, obj$gr,
