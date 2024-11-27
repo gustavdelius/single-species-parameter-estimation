@@ -1,5 +1,5 @@
 # Project population over time using the dynamic model
-gpt_project <- function(N0, G, Z, R, n_steps_per_year) {
+gpt_project <- function(N0, g, m, FMort, R, log_epsilon_N, n_steps_per_year) {
     # Number of years
     n_years <- length(R)
     # Number of size bins
@@ -14,11 +14,12 @@ gpt_project <- function(N0, G, Z, R, n_steps_per_year) {
         for (t in 1:n_steps_per_year) {
             i <- (y - 1) * n_steps_per_year + t
             for (j in 1:n_bins) {
-                growth_contrib <- (if (j == 1) R[y] else (G[y, j - 1] * N[i + 1, j - 1])) * delta_t / bin_width[j]
-                denominator <- 1 + (G[y, j] * delta_t / bin_width[j]) + (Z[y, j] * delta_t)
+                growth_contrib <- (if (j == 1) R[y] else (g[j - 1] * N[i + 1, j - 1])) * delta_t / bin_width[j]
+                denominator <- 1 + (g[j] * delta_t / bin_width[j]) + ((m[j] + FMort[y, j]) * delta_t)
                 N[i + 1, j] <- (N[i, j] + growth_contrib) / denominator
             }
         }
+        N[i + 1, ] <- N[i + 1, ] * exp(log_epsilon_N[y, ])
     }
     return(N)
 }

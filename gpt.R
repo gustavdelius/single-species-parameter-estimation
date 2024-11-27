@@ -28,27 +28,27 @@ delta_t <- 0.1
 n_steps_per_year <- 1 / delta_t
 
 # Set growth and mortality rates
-g_given <- approx(w(p), getEGrowth(p), xout = bin_start)$y
-plot(bin_start, g_given, type = "l", log = "x", xlab = "Weight", ylab = "Growth rate")
-m_given <- approx(w(p), getExtMort(p), xout = bin_start)$y
-plot(bin_start, m_given, type = "l", log = "xy", xlab = "Weight", ylab = "Natural mortality rate")
+g <- approx(w(p), getEGrowth(p), xout = bin_start)$y
+plot(bin_start, g, type = "l", log = "x", xlab = "Weight", ylab = "Growth rate")
+m <- approx(w(p), getExtMort(p), xout = bin_start)$y
+plot(bin_start, m, type = "l", log = "xy", xlab = "Weight", ylab = "Natural mortality rate")
 f <- approx(w(p), getFMort(p), xout = bin_start)$y
 plot(bin_start, f, type = "l", log = "x", xlab = "Weight", ylab = "Fishing mortality")
 
 # Set initial population size
 Ns <- approx(w(p), initialN(p)[1, ], xout = bin_start)$y
 plot(bin_start, Ns, type = "l", log = "xy", xlab = "Weight", ylab = "Abundance")
-Ns <- gpt_steady(Ns[1], g_given, m_given + f, bin_width)
+Ns <- gpt_steady(Ns[1], g, m + f, bin_width)
 lines(bin_start, Ns, col = "red")
 
-# Set recruitment
-Rs <- Ns[1] * (g_given[1] + (m_given[1] + f[1]) * bin_width[1])
+# Set steady-state recruitment
+Rs <- Ns[1] * (g[1] + (m[1] + f[1]) * bin_width[1])
 R <- rep(Rs, n_years)
 
 # Check that this is at steady state
-G <- matrix(rep(g_given, each = n_years), nrow = n_years, byrow = FALSE)
-Z <- matrix(rep(m_given + f, each = n_years), nrow = n_years, byrow = FALSE)
-N <- gpt_project(Ns, G, Z, R, n_steps_per_year)
+log_epsilon_N <- matrix(0, n_years, n_bins)
+FMort <- matrix(f, n_years, n_bins, byrow = TRUE)
+N <- gpt_project(Ns, g, m, FMort, R, log_epsilon_N, n_steps_per_year)
 all.equal(N[1, ], N[n_years * n_steps_per_year + 1, ])
 
 # Random fishing mortality scaling factor
@@ -56,33 +56,31 @@ sigma_F0 <- 0.1
 F0 <- exp(rnorm(n_years, sd = sigma_F0) - 0.5 * sigma_F0^2)
 plot(years, F0, type = "b", xlab = "Year", ylab = "Fishing mortality scaling factor")
 
-# Define separate parameters for AR(1) processes in time and bins
-rho_t_g <- 0.5   # Temporal correlation for growth rate errors
-rho_s_g <- 0.3   # Spatial correlation for growth rate errors
-sigma_t_g <- 0.4 # Standard deviation for temporal errors in growth
-sigma_s_g <- 0.4 # Standard deviation for spatial errors in growth
-
-rho_t_m <- 0.8   # Temporal correlation for mortality rate errors
-rho_s_m <- 0.2   # Spatial correlation for mortality rate errors
-sigma_t_m <- 0.4 # Standard deviation for temporal errors in mortality
-sigma_s_m <- 0.2 # Standard deviation for spatial errors in mortality
-
-# Generate AR(1) errors for growth and mortality rates
-epsilon_g <- generate_separable_AR1(n_years, n_bins, rho_t_g, rho_s_g, sigma_t_g, sigma_s_g)
-epsilon_m <- generate_separable_AR1(n_years, n_bins, rho_t_m, rho_s_m, sigma_t_m, sigma_s_m)
-
-# Rate matrices
-G <- sweep(exp(epsilon_g), 2, g_given, "*")
-plot(bin_start, G[1, ], type = "l", log = "x", xlab = "Weight", ylab = "Growth rate",
-     main = "Growth rate for the first year")
-lines(bin_start, G[2, ], col = "blue")
-lines(bin_start, g_given, col = "red")
+# Fishing mortality rate matrix
 FMort <- outer(F0, f)
-Z <- sweep(exp(epsilon_m), 2, m_given, "*") + FMort
-plot(bin_start, Z[1, ], type = "l", log = "xy", xlab = "Weight", ylab = "Total mortality rate",
-     main = "Total mortality rate for the first year")
-lines(bin_start, Z[2, ], col = "blue")
-lines(bin_start, m_given + FMort[1, ], col = "red")
+
+# Define parameters for AR(1) process
+
+# Generate errors for N
+log_epsilon_N <- matrix(0, n_years, n_bins)
+# We do not need an error for the first bin because that is covered by the
+# error in recruitment
+log_epsilon_N[, 1] <- 0
+# For later bins we use an AR(1) process
+# log_eps(j + 1) = rho * log_eps(j) + N(mu, sigma^2)
+# Where we mu so that the mean of exp(eps) is 1
+rho_N <- 0.5
+sigma_N <- 0.4
+mu_N <- -sigma_N^2 / (1 + rho_N) / 2
+for (j in 2:n_bins) {
+    log_epsilon_N[, j] <- rho_N * log_epsilon_N[, j - 1] +
+        rnorm(n_years, mean = mu_N, sd = sigma_N)
+}
+# Check that the mean of exp(log_epsilon_N) is 1
+mean(exp(log_epsilon_N))
+# Take a look at the multiplicative errors
+animation <- gpt_animate_N(exp(log_epsilon_N), years, bin_start, logy = FALSE)
+animation
 
 # Random recruitment
 sigma_R <- 0.2 # Standard deviation for recruitment
@@ -93,7 +91,7 @@ R <- Rs * R_factor
 plot(years, R, type = "b", xlab = "Year", ylab = "Recruitment")
 
 # Calculate population matrix
-N <- gpt_project(Ns, G, Z, R, n_steps_per_year)
+N <- gpt_project(Ns, g, m, FMort, R, log_epsilon_N, n_steps_per_year)
 
 # Animate N over time
 animation <- gpt_animate_N(N, years, bin_start)
@@ -130,10 +128,9 @@ landings <- data.frame(
     bin_start = rep(bin_start, times = n_years),
     count = as.vector(t(simulated_counts))
 )
-y <- 5
-plot(bin_start, simulated_counts[y, ], type = "b", log = "xy",
-     xlab = "Weight", ylab = "Simulated Counts",
-     main = paste("Year", years[y]))
+
+animation <- gpt_animate_N(simulated_counts, years, bin_start, logy = FALSE)
+animation
 
 # Simulate yield for each year
 sigma_yield <- 0.1
@@ -151,35 +148,29 @@ data_list <- list(
     obs_counts = simulated_counts, # Matrix of observed counts [n_years x n_bins]
     n_sample = n_sample,           # Vector of sample sizes [n_years]
     yield = yield,                 # Simulated total yield
-    f = f,                         # Selectivity vector
-    given_g = g_given,             # Given growth rates for each weight class
-    given_m = m_given,             # Given natural mortality rates for each weight class
+    f = f,             # Selectivity vector
+    g = g,             # growth rates for each weight class
+    m = m,             # natural mortality rates for each weight class
     n_steps_per_year = n_steps_per_year,
     Ns = Ns,                       # Steady state population density
     Rs = Rs                        # Steady state recruitment
 )
 
 # Define parameters and initial values for TMB
+n_years <- length(unique(landings$year))
 parameters <- list(
     log_N0_factor = rep(0, n_bins),
-    log_F0 = rep(log(0.1), length(unique(landings$year))),
-    log_R_factor = rep(0, length(unique(landings$year))),
+    log_F0 = rep(log(0.1), n_years),
+    log_R_factor = rep(0, n_years),
     log_sigma_R_factor = log(1.0),
-    epsilon_g = array(0, dim = c(length(unique(landings$year)), n_bins)),
-    epsilon_m = array(0, dim = c(length(unique(landings$year)), n_bins)),
-    log_sigma_yield =  log(0.2),  # Initial guess for standard deviation of yield
-    logit_rho_t_g = 0,  # Initial guess for temporal correlation for growth rate errors
-    logit_rho_s_g = 0,  # Initial guess for spatial correlation for growth rate errors
-    logit_rho_t_m = 0,  # Initial guess for temporal correlation for mortality rate errors
-    logit_rho_s_m = 0,  # Initial guess for spatial correlation for mortality rate errors
-    log_sigma_t_g = log(sigma_t_g),
-    log_sigma_s_g = log(sigma_s_g),
-    log_sigma_t_m = log(sigma_t_m),
-    log_sigma_s_m = log(sigma_s_m)
+    log_epsilon_N = array(0, dim = c(n_years, n_bins - 1)),
+    logit_rho_N = 0,
+    log_sigma_N = -1.0,
+    log_sigma_yield =  log(0.2)
 )
 
 # Define random effects
-random_effects <- c("epsilon_g", "epsilon_m", "log_R_factor")
+random_effects <- c("log_epsilon_N", "log_R_factor")
 
 # Compile and load the TMB model
 compile("gpt.cpp")
