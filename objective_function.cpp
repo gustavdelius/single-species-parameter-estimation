@@ -13,6 +13,7 @@ vector<Type> calculate_F_mort(Type l50, Type ratio, Type catchability,
 
     // Check that all elements are finite and non-negative
     TMBAD_ASSERT((F_mort.array().isFinite() && (F_mort.array() >= 0)).all());
+
     return F_mort;
 }
 
@@ -121,17 +122,17 @@ Type objective_function<Type>::operator() ()
     DATA_VECTOR(EReproAndGrowth);  // The rate at which energy is available for growth
                                    // and reproduction
     DATA_VECTOR(repro_prop);       // Proportion of energy allocated to reproduction
-    DATA_SCALAR(w_mat);
+    DATA_SCALAR(w_mat);            // Maturity size is currently not optimised
     DATA_SCALAR(d);                // Exponent of mortality power-law
     DATA_SCALAR(yield_lambda);     // controls the strength of the penalty for
                                    // deviation from the observed yield.
 
     // **Parameter Section**
-    PARAMETER(l50);
-    PARAMETER(ratio);
-    PARAMETER(M);
-    PARAMETER(U);
-    PARAMETER(catchability);
+    PARAMETER(l50);          // Length at 50% gear selectivity
+    PARAMETER(ratio);        // Ratio between l25 and l50
+    PARAMETER(M);            // Coefficient of natural mortality rate power law
+    PARAMETER(U);            // Steepness parameter of maturity ogive
+    PARAMETER(catchability); // Catchability
 
     // Check lengths of data vectors
     TMBAD_ASSERT(bin_widths.size() == bin_boundaries.size() - 1);

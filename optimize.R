@@ -6,25 +6,15 @@
 
 install_github("sizespectrum/mizerExperimental")
 library(mizerExperimental)
+library(TMB)
 source("plot_catch.R")
 source("cod_model.R")
 source("update_params.R")
+source("prepare_TMB_objective_function.R")
 
-use_TMB <- TRUE
-# use_TMB <- FALSE # Uncomment this line to use the old version of the optimization
-if (use_TMB) {
-    # This is the TMB version of the optimization. It is faster than the optim
-    # version below, and can handle more complex models.
-    library(TMB)
-
-    # Compile the model
-    compile("objective_function.cpp")
-    dyn.load(dynlib("objective_function"))
-
-    source("prepare_TMB_objective_function.R")
-} else {
-    source("prepare_objective_function.R")
-}
+# Compile the model
+compile("objective_function.cpp")
+dyn.load(dynlib("objective_function"))
 
 # We demonstrate this with a single-species model for cod
 p <- cod_model()
@@ -47,35 +37,14 @@ initial_params <- c(l50 = gp$l50, ratio = gp$l25 / gp$l50, M = 0, U = 10,
 lower_bounds <- c(l50 = 5, ratio = 0.1, M = 0, U = 1, catchability = 0)
 upper_bounds <- c(l50 = Inf, ratio = 0.99, M = Inf, U = 20, catchability = Inf)
 
-if (use_TMB) {
-    # Prepare the objective function. See prepare_TMB_objective_function.R for details.
-    obj <- prepare_TMB_objective_function(p, catch, yield_lambda = 1e7,
-                                          pars = initial_params)
-    # Perform the optimization. This starts with the initial parameter estimates and
-    # iteratively updates them to minimize the objective function.
-    optim_result <- nlminb(obj$par, obj$fn, obj$gr,
-                           lower = lower_bounds, upper = upper_bounds,
-                           control = list(trace = 1))
-} else {
-    # This version uses numerical differentiation. It is slower than the TMB
-    # version above, but is easier to use and understand.
-    # Prepare the objective function. See prepare_objective_function.R for details.
-    objective_function <- prepare_objective_function(p, catch, yield_lambda = 1e7)
-
-    # Perform the optimization. This starts with the initial parameter estimates and
-    # iteratively updates them to minimize the objective function.
-    optim_result <- optim(
-        par = initial_params,
-        fn = objective_function,
-        method = "L-BFGS-B",  # Allows for parameter bounds
-        lower = lower_bounds,
-        upper = upper_bounds,
-        control = list(fnscale = 1, maxit = 100,
-                       # We print the value of the objective function at each iteration
-                       trace = 1, REPORT = 1)
-    )
-    # After the last iteration there is a pause. That is normal. Be patient.
-}
+# Prepare the objective function. See prepare_TMB_objective_function.R for details.
+obj <- prepare_TMB_objective_function(p, catch, yield_lambda = 1e7,
+                                      pars = initial_params)
+# Perform the optimization. This starts with the initial parameter estimates and
+# iteratively updates them to minimize the objective function.
+optim_result <- nlminb(obj$par, obj$fn, obj$gr,
+                       lower = lower_bounds, upper = upper_bounds,
+                       control = list(trace = 1))
 
 optim_result$par
 
