@@ -167,6 +167,7 @@ Type objective_function<Type>::operator() ()
     // Add a small epsilon to avoid log(0) and normalize
     vector<Type> probs = catch_per_bin + Type(1e-10);
     probs = probs / probs.sum();
+    REPORT(probs);
 
     // **Negative Log-Likelihood Calculation**
     // Compute the negative log-likelihood using the multinomial distribution
@@ -178,6 +179,8 @@ Type objective_function<Type>::operator() ()
     TMBAD_ASSERT(nll >= 0);
     TMBAD_ASSERT(CppAD::isfinite(nll));
     if (!CppAD::isfinite(nll)) error("nll is not finite");
+
+    REPORT(model_yield);
 
     return nll;
 }

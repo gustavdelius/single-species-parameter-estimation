@@ -14,7 +14,7 @@ source("update_params.R")
 source("prepare_TMB_objective_function.R")
 
 # Compile the model
-compile("objective_function.cpp", flags = "-g -O0")
+compile("objective_function.cpp")
 dyn.load(dynlib("objective_function"))
 
 p <- readParams("celtic_params.rds")
@@ -71,6 +71,7 @@ optim_result <- nlminb(obj$par, obj$fn, obj$gr,
                        control = list(trace = 1))
 
 optim_result$par
+report <- obj$report()
 
 # Set model to use the optimal parameters
 optimal_params <- update_params(p, species, optim_result$par)
@@ -79,6 +80,7 @@ plot_catch(optimal_params, species, catch)
 
 # Also the yield is approximately matched:
 gps$yield_observed
+report$model_yield
 getYield(optimal_params)[sp_select]
 # If you want a better match you can increase the `yield_lambda` parameter
 
