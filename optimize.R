@@ -16,29 +16,32 @@ source("prepare_TMB_objective_function.R")
 compile("objective_function.cpp")
 dyn.load(dynlib("objective_function"))
 
-# We demonstrate this with a single-species model for cod
-p <- cod_model()
-
 # Load cod catch size distribution
 catch <- readRDS("cod_catch.rds")
 
+sp <- species_params(p)
+species <- "Cod"
+sp_select <- sp$species == species
+catch <- catch[sp_select, ]
 # Model does not fit the observed catch yet:
-plot_catch(p, catch)
+plot_catch(p, species, catch)
 # and it has the wrong total yield:
-p@gear_params$yield_observed
-getYield(p)
+p@gear_params$yield_observed[sp_select]
+getYield(p)[sp_select]
 
 # Initial parameter estimates
 gp <- gear_params(p)
-initial_params <- c(l50 = gp$l50, ratio = gp$l25 / gp$l50, M = 0, U = 10,
-                    catchability = gp$catchability)
+gps <- gp[gp$species == species, ]
+
+initial_params <- c(l50 = gps$l50, ratio = gps$l25 / gps$l50, M = 0, U = 10,
+                    catchability = gps$catchability)
 
 # Set parameter bounds
 lower_bounds <- c(l50 = 5, ratio = 0.1, M = 0, U = 1, catchability = 0)
 upper_bounds <- c(l50 = Inf, ratio = 0.99, M = Inf, U = 20, catchability = Inf)
 
 # Prepare the objective function. See prepare_TMB_objective_function.R for details.
-obj <- prepare_TMB_objective_function(p, catch, yield_lambda = 1e7,
+obj <- prepare_TMB_objective_function(p, species, catch, yield_lambda = 1e7,
                                       pars = initial_params)
 # Perform the optimization. This starts with the initial parameter estimates and
 # iteratively updates them to minimize the objective function.
@@ -49,16 +52,16 @@ optim_result <- nlminb(obj$par, obj$fn, obj$gr,
 optim_result$par
 
 # Set model to use the optimal parameters
-optimal_params <- update_params(p, optim_result$par)
+optimal_params <- update_params(p, species, optim_result$par)
 # and plot the model catch again against the observed catch
-plot_catch(optimal_params, catch)
+plot_catch(optimal_params, species, catch)
 # The fit is quite good.
 
 # Also the yield is approximately matched:
-gp$yield_observed
-getYield(optimal_params)
+gps$yield_observed
+getYield(optimal_params)[sp_select]
 # If you want a better match you can increase the `yield_lambda` parameter
 
 # Biomass is matched perfectly, by design
-p@species_params$biomass_observed
-getBiomass(optimal_params)
+sps$biomass_observed
+getBiomass(optimal_params)[sp_select]

@@ -8,31 +8,44 @@
 #' @param params The MizerParams object to update
 #' @param pars A named numeric vector of parameter values
 #' @return The updated MizerParams object
-update_params <- function(params, pars) {
-    sp <- params@species_params
+update_params <- function(params, species = 1, pars) {
+    params <- validParams(params)
+    species <- valid_species_arg(params, species, error_on_empty = TRUE)
+    if (length(species) > 1) {
+        stop("Only one species can be updated at a time.")
+    }
+    sp <- species_params(params)
+    sp_select <- sp$species == species
+    sps <- sp[sp_select, ]
+
     gp <- params@gear_params
+    gp_select <- gp$species == species
+    gps <- gp[gp_select, ]
+    if (nrow(gps) > 1) {
+        stop("The code currently assumes that there is only a single gear for each species.")
+    }
 
     # Update the gear parameters
-    gp$l50 <- pars["l50"]
-    gp$l25 <- pars["ratio"] * gp$l50
-    gp$catchability <- pars["catchability"]
-    gear_params(params) <- gp
+    gps$l50 <- pars["l50"]
+    gps$l25 <- pars["ratio"] * pars["l50"]
+    gps$catchability <- pars["catchability"]
+    gear_params(params)[gp_select, ] <- gps
 
     # recalculate the power-law mortality rate
-    sp$M <- pars["M"]
-    ext_mort(params)[] <- sp$M * params@w^sp$d
+    # sps$M <- pars["M"]
+    ext_mort(params)[sp_select, ] <- pars["M"] * params@w^sps$d
 
     # Update the steepness of the maturity ogive
-    sp$w_mat25 <- sp$w_mat / 3^(1 / pars["U"])
-    params@species_params <- sp
+    sps$w_mat25 <- sps$w_mat / 3^(1 / pars["U"])
+    params@species_params[sp_select, ] <- sps
     params <- setReproduction(params)
 
     # Calculate the new steady state ----
     params <- steadySingleSpecies(params)
     # Rescale it to get the observed biomass
-    total <- sum(params@initial_n * params@w * params@dw)
-    factor <- sp$biomass_observed / total
-    params@initial_n <- params@initial_n * factor
+    total <- sum(params@initial_n[sp_select, ] * params@w * params@dw)
+    factor <- sps$biomass_observed / total
+    params@initial_n[sp_select, ] <- params@initial_n[sp_select, ] * factor
 
     return(params)
 }

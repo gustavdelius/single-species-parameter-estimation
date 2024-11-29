@@ -16,8 +16,9 @@
 #' at all sizes. Missing observations should be interpreted as a 0 count.
 #'
 #' @param params A MizerParams object
-#' @param df A data frame containing the observed binned count data. It must contain
-#'   the following columns:
+#' @param species The species for which the objective function is to be prepared.
+#' @param catch A data frame containing the observed binned catch data. It must
+#'   contain the following columns:
 #'   * `length`: The start of each bin.
 #'   * `dl`: The width of each bin.
 #'   * `count`: The observed count for each bin.
@@ -28,22 +29,34 @@
 #'
 #' @return The objective function
 #'
-prepare_TMB_objective_function <- function(params, df, yield_lambda, pars) {
+prepare_TMB_objective_function <- function(params, species = 1,
+                                           catch, yield_lambda, pars) {
 
     # Validate MizerParams object
     params <- validParams(params)
-    sp <- params@species_params
-
-    # Validate data frame
-    if (!all(c('length', 'dl', 'count') %in% names(df))) {
-        stop("Data frame 'df' must contain columns 'length', 'dl', and 'count'.")
+    species <- valid_species_arg(params, species, error_on_empty = TRUE)
+    if (length(species) > 1) {
+        stop("Only one species can be updated at a time.")
     }
+    sp <- species_params(params)
+    sp_select <- sp$species == species
+    sps <- sp[sp_select, ]
+
+    gp <- params@gear_params
+    gp_select <- gp$species == species
+    gps <- gp[gp_select, ]
+    if (nrow(gps) > 1) {
+        stop("The code currently assumes that there is only a single gear for each species.")
+    }
+
+    # Validate catch data frame
+    catch <- valid_catch(catch, species)
 
     # Extract observed bin starts, ends, and counts
     observed_bins <- data.frame(
-        bin_start = df$length,
-        bin_end = df$length + df$dl,
-        count = df$count
+        bin_start = catch$length,
+        bin_end = catch$length + catch$dl,
+        count = catch$count
     )
 
     # Create a comprehensive set of bin edges covering all observed bins
@@ -71,16 +84,18 @@ prepare_TMB_objective_function <- function(params, df, yield_lambda, pars) {
     # Collect all unique bin boundaries for interpolation
     l_bin_boundaries <- unique(c(full_bins$bin_start, full_bins$bin_end))
     # Give this in terms of weights
-    w_bin_boundaries <- sp$a * l_bin_boundaries^sp$b
+    w_bin_boundaries <- sps$a * l_bin_boundaries^sps$b
 
     # Precompute bin widths
     w_bin_widths <- diff(w_bin_boundaries)
 
     # Interpolate EReproAndGrowth and repro_prop to all bin boundaries
     EReproAndGrowth <-
-        approx(w(params), getEReproAndGrowth(params), xout = w_bin_boundaries)$y
+        approx(w(params), getEReproAndGrowth(params)[sp_select, ],
+               xout = w_bin_boundaries)$y
     repro_prop <-
-        approx(w(params), repro_prop(params), xout = w_bin_boundaries)$y
+        approx(w(params), repro_prop(params)[sp_select, ],
+               xout = w_bin_boundaries)$y
 
     # Prepare data
     data_list <- list(
@@ -88,16 +103,37 @@ prepare_TMB_objective_function <- function(params, df, yield_lambda, pars) {
         bin_widths = w_bin_widths,
         bin_boundaries = w_bin_boundaries,
         bin_boundary_lengths = l_bin_boundaries,
-        yield = params@gear_params$yield_observed,
-        biomass = sp$biomass_observed,
+        yield = gps$yield_observed,
+        biomass = sps$biomass_observed,
         EReproAndGrowth = EReproAndGrowth,
         repro_prop = repro_prop,
-        w_mat = sp$w_mat,
-        d = sp$d,
+        w_mat = sps$w_mat,
+        d = sps$d,
         yield_lambda = yield_lambda
     )
 
     MakeADFun(data = data_list,
               parameters = pars,
               DLL = "objective_function")
+}
+
+valid_catch <- function(catch, species) {
+    # Allow "catch" as an alternative name to "count"
+    if ("catch" %in% names(catch)) {
+        catch$count <- catch$catch
+    }
+    if (!all(c('length', 'dl', 'count') %in% names(catch))) {
+        stop("Data frame 'catch' must contain columns 'length', 'dl', and 'count'.")
+    }
+    # If this contains data for several species, extract the desired species
+    if ("species" %in% names(catch)) {
+        catch <- catch[catch$species == species, ]
+    }
+    if ("gear" %in% names(catch) && length(unique(catch$gear)) > 1) {
+        stop("The code currently assumes that there is only a single gear for each species.")
+    }
+    if (nrow(catch) == 0) {
+        stop("No catch data for species ", species)
+    }
+    return(catch)
 }
