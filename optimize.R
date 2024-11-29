@@ -7,6 +7,7 @@
 install_github("sizespectrum/mizerExperimental")
 library(mizerExperimental)
 library(TMB)
+library(dplyr)
 source("plot_catch.R")
 source("cod_model.R")
 source("update_params.R")
@@ -17,14 +18,37 @@ compile("objective_function.cpp", flags = "-g -O0")
 dyn.load(dynlib("objective_function"))
 
 p <- readParams("celtic_params.rds")
-# Load cod catch size distribution
-catch <- readRDS("celtic_catch.rds")
-
 sp <- species_params(p)
 gp <- gear_params(p)
 
-species <- valid_species_arg(p, 1)
+# Load cod catch size distribution
+catch <- readRDS("celtic_catch.rds")
+# Remove 4 very large fish
+catch <- catch |>
+    filter(length < 161)
+# Fix incorrect maximum sizes
+max_lengths <- catch |>
+    filter(species != "Pilchard") |>
+    group_by(species) |>
+    summarize(max_length = max(length + dl))
+sp <- left_join(sp, max_lengths, by = "species")
+sp$max_weight <- l2w(sp$max_length, p)
+sp |> select(species, w_max, max_weight)
+wrong <- sp$w_repro_max < sp$max_weight
+species_params(p)$w_max[wrong] <- sp$max_weight[wrong]
+species_params(p)$w_repro_max[wrong] <- sp$max_weight[wrong]
+sp <- species_params(p)
+p <- steadySingleSpecies(p) |> matchGrowth() |> matchBiomasses()
+plotlySpectra(p)
+
+# Set parameter bounds
+lower_bounds <- c(l50 = 5, ratio = 0.1, M = 0, U = 1, catchability = 0)
+upper_bounds <- c(l50 = Inf, ratio = 0.99, M = Inf, U = 20, catchability = Inf)
+
+species <- valid_species_arg(p, 8)
+
 sp_select <- sp$species == species
+sps <- sp[sp_select, ]
 gps <- gp[gp$species == species, ]
 
 # Model does not fit the observed catch yet:
@@ -36,10 +60,6 @@ getYield(p)[sp_select]
 # Initial parameter estimates
 initial_params <- c(l50 = gps$l50, ratio = gps$l25 / gps$l50, M = 0, U = 10,
                     catchability = gps$catchability)
-
-# Set parameter bounds
-lower_bounds <- c(l50 = 5, ratio = 0.1, M = 0, U = 1, catchability = 0)
-upper_bounds <- c(l50 = Inf, ratio = 0.99, M = Inf, U = 20, catchability = Inf)
 
 # Prepare the objective function. See prepare_TMB_objective_function.R for details.
 obj <- prepare_TMB_objective_function(p, species, catch, yield_lambda = 1e7,
@@ -56,7 +76,6 @@ optim_result$par
 optimal_params <- update_params(p, species, optim_result$par)
 # and plot the model catch again against the observed catch
 plot_catch(optimal_params, species, catch)
-# The fit is quite good.
 
 # Also the yield is approximately matched:
 gps$yield_observed

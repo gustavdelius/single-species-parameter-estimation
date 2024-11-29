@@ -94,10 +94,16 @@ prepare_TMB_objective_function <- function(params, species = 1,
         approx(w(params), getEReproAndGrowth(params)[sp_select, ],
                xout = w_bin_boundaries)$y
     EReproAndGrowth[EReproAndGrowth < 0] <- 0
+    if (anyNA(EReproAndGrowth)) {
+        stop("Interpolation of EReproAndGrowth failed.")
+    }
     repro_prop <-
         approx(w(params), repro_prop(params)[sp_select, ],
                xout = w_bin_boundaries)$y
     repro_prop[repro_prop > 1] <- 1
+    if (anyNA(repro_prop)) {
+        stop("Interpolation of repro_prop failed.")
+    }
 
     # Prepare data
     data_list <- list(
