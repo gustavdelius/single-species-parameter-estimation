@@ -13,26 +13,27 @@ source("update_params.R")
 source("prepare_TMB_objective_function.R")
 
 # Compile the model
-compile("objective_function.cpp")
+compile("objective_function.cpp", flags = "-g -O0")
 dyn.load(dynlib("objective_function"))
 
+p <- readParams("celtic_params.rds")
 # Load cod catch size distribution
-catch <- readRDS("cod_catch.rds")
+catch <- readRDS("celtic_catch.rds")
 
 sp <- species_params(p)
-species <- "Cod"
+gp <- gear_params(p)
+
+species <- valid_species_arg(p, 1)
 sp_select <- sp$species == species
-catch <- catch[sp_select, ]
+gps <- gp[gp$species == species, ]
+
 # Model does not fit the observed catch yet:
 plot_catch(p, species, catch)
 # and it has the wrong total yield:
-p@gear_params$yield_observed[sp_select]
+gps$yield_observed
 getYield(p)[sp_select]
 
 # Initial parameter estimates
-gp <- gear_params(p)
-gps <- gp[gp$species == species, ]
-
 initial_params <- c(l50 = gps$l50, ratio = gps$l25 / gps$l50, M = 0, U = 10,
                     catchability = gps$catchability)
 

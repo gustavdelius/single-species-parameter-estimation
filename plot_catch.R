@@ -16,8 +16,8 @@ plot_catch <- function(params, species = 1, catch) {
 
     # Create an empty plot with the correct x and y limits
     plot(NULL, xlim = c(min(catch$length), max(catch$length + catch$dl)),
-         ylim = c(0, max(heights)), xlab = "Length [cm]", ylab = "Density",
-         main = "Histogram with Areas Representing Counts")
+         ylim = c(0, max(heights)), xlab = "Length [cm]", ylab = "Catch Density",
+         main = species)
 
     # Draw the bars using rect()
     rect(catch$length, 0, catch$length + catch$dl, heights,

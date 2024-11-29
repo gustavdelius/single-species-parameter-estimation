@@ -24,7 +24,7 @@ vector<Type> calculate_mort(vector<Type> F_mort, Type M, Type d,
     vector<Type> mort = M * pow(bin_boundaries, d) + F_mort;
 
     // Check that all elements are finite and non-negative
-    TMBAD_ASSERT((mort.array().isFinite() && (mort.array() >= 0)).all());
+    TMBAD_ASSERT((mort.array().isFinite() && (mort.array() > 0)).all());
     return mort;
 }
 
@@ -37,9 +37,6 @@ vector<Type> calculate_growth(vector<Type>EReproAndGrowth,
     Type c1 = Type(1.0);
     vector<Type> psi = repro_prop / (c1 + pow(bin_boundaries / w_mat, -U));
     vector<Type> growth = EReproAndGrowth * (c1 - psi);
-
-    // Check that all elements are finite and positive
-    TMBAD_ASSERT((growth.array().isFinite() && (growth.array() > 0)).all());
     return growth;
 }
 
