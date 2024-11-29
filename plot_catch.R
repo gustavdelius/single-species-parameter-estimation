@@ -12,7 +12,7 @@ plot_catch <- function(params, species = 1, catch) {
     # Validate catch data frame
     catch <- valid_catch(catch, species)
 
-    heights <- catch$catch / catch$dl / sum(catch$catch)
+    heights <- catch$count / catch$dl / sum(catch$count)
 
     # Create an empty plot with the correct x and y limits
     plot(NULL, xlim = c(min(catch$length), max(catch$length + catch$dl)),
