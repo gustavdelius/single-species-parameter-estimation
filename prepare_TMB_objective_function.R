@@ -56,8 +56,23 @@ prepare_TMB_objective_function <- function(params, species = 1,
     observed_bins <- data.frame(
         bin_start = catch$length,
         bin_end = catch$length + catch$dl,
-        count = catch$count
-    )
+        count = catch$count)
+    # Add empty bins at either end to ensure that the full range is covered
+    if (min(catch$length) > 2) {
+        observed_bins <- rbind(observed_bins,
+                               data.frame(bin_start = 1,
+                                          bin_end = min(catch$length),
+                                          count = 0))
+    }
+    max_idx <- which.max(catch$length)
+    max_length <- catch$length[max_idx] + catch$dl[max_idx]
+    l_max <- (sps$w_max / sps$a)^(1/sps$b)
+    if (l_max - max_length > 1) {
+        observed_bins <- rbind(observed_bins,
+                               data.frame(bin_start = max_length,
+                                          bin_end = l_max,
+                                          count = 0))
+    }
 
     # Create a comprehensive set of bin edges covering all observed bins
     bin_edges <- sort(unique(c(observed_bins$bin_start, observed_bins$bin_end)))
@@ -105,6 +120,9 @@ prepare_TMB_objective_function <- function(params, species = 1,
         stop("Interpolation of repro_prop failed.")
     }
 
+    # Calculate biomass above 2cm
+    biomass <- getBiomass(params, min_w = min(w_bin_boundaries))[sp_select]
+
     # Prepare data
     data_list <- list(
         counts = counts,
@@ -112,7 +130,7 @@ prepare_TMB_objective_function <- function(params, species = 1,
         bin_boundaries = w_bin_boundaries,
         bin_boundary_lengths = l_bin_boundaries,
         yield = gps$yield_observed,
-        biomass = sps$biomass_observed,
+        biomass = biomass,
         EReproAndGrowth = EReproAndGrowth,
         repro_prop = repro_prop,
         w_mat = sps$w_mat,
