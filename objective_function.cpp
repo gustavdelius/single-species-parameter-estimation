@@ -171,7 +171,7 @@ Type objective_function<Type>::operator() ()
 
     // **Negative Log-Likelihood Calculation**
     // Compute the negative log-likelihood using the multinomial distribution
-    Type nll = -dmultinom(counts, probs, true);
+    Type nll = -dmultinom(counts, probs, true) / counts.sum();
 
     // **Add penalty for deviation from observed yield**
     nll += yield_lambda * pow(log(model_yield / yield), Type(2));
