@@ -41,11 +41,7 @@ sp <- species_params(p)
 p <- steadySingleSpecies(p) |> matchGrowth() |> matchBiomasses()
 plotlySpectra(p)
 
-# Set parameter bounds
-lower_bounds <- c(l50 = 5, ratio = 0.1, M = 0, U = 1, catchability = 0)
-upper_bounds <- c(l50 = Inf, ratio = 0.99, M = Inf, U = 20, catchability = Inf)
-
-species <- valid_species_arg(p, 8)
+species <- valid_species_arg(p, 3)
 
 sp_select <- sp$species == species
 sps <- sp[sp_select, ]
@@ -57,9 +53,16 @@ plot_catch(p, species, catch)
 gps$yield_observed
 getYield(p)[sp_select]
 
+# Set parameter bounds
+lower_bounds <- c(l50 = 5, ratio = 0.1, catchability = 0, M = 0,
+                  U = 1, w_repro_max = sps$w_mat)
+upper_bounds <- c(l50 = Inf, ratio = 0.99, catchability = Inf, M = Inf,
+                  U = 20, w_repro_max = Inf)
+
 # Initial parameter estimates
-initial_params <- c(l50 = gps$l50, ratio = gps$l25 / gps$l50, M = 0, U = 10,
-                    catchability = gps$catchability)
+initial_params <- c(l50 = gps$l50, ratio = gps$l25 / gps$l50,
+                    catchability = gps$catchability, M = 0,
+                    U = 10, w_repro_max = sps$w_repro_max)
 
 # Prepare the objective function. See prepare_TMB_objective_function.R for details.
 obj <- prepare_TMB_objective_function(p, species, catch, yield_lambda = 1e7,

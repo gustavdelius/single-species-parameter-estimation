@@ -30,11 +30,11 @@ vector<Type> calculate_mort(vector<Type> F_mort, Type M, Type d,
 
 template<class Type>
 vector<Type> calculate_growth(vector<Type>EReproAndGrowth,
-                              vector<Type>repro_prop,
-                              Type w_mat, Type U,
-                              vector<Type> bin_boundaries)
+                              Type w_mat, Type w_repro_max, Type m_minus_n,
+                              Type U, vector<Type> bin_boundaries)
 {
     Type c1 = Type(1.0);
+    vector<Type> repro_prop = pow(bin_boundaries / w_repro_max, m_minus_n);
     vector<Type> psi = repro_prop / (c1 + pow(bin_boundaries / w_mat, -U));
     vector<Type> growth = EReproAndGrowth * (c1 - psi);
 
@@ -107,7 +107,16 @@ Type calculate_yield(vector<Type> catch_per_bin,
     return model_yield;
 }
 
+calculate_repro(vector<Type> N, vector<Type> EReproAndGrowth, vector<Type> growth,
+                vector<Type> bin_widths)
+{
+    // **Calculate reproductive investment**
 
+
+    // Check that all elements are finite and non-negative
+    TMBAD_ASSERT((repro.array().isFinite() && (repro.array() >= 0)).all());
+    return repro;
+}
 
 template<class Type>
 Type objective_function<Type>::operator() ()
@@ -121,8 +130,9 @@ Type objective_function<Type>::operator() ()
     DATA_SCALAR(biomass);          // Observed biomass
     DATA_VECTOR(EReproAndGrowth);  // The rate at which energy is available for growth
                                    // and reproduction
-    DATA_VECTOR(repro_prop);       // Proportion of energy allocated to reproduction
     DATA_SCALAR(w_mat);            // Maturity size is currently not optimised
+    DATA_SCALAR(m_minus_n);        // Exponent for repro_prop
+    DATA_SCALAR(mu_repro);         // Reproductive investment
     DATA_SCALAR(d);                // Exponent of mortality power-law
     DATA_SCALAR(yield_lambda);     // controls the strength of the penalty for
                                    // deviation from the observed yield.
@@ -130,9 +140,10 @@ Type objective_function<Type>::operator() ()
     // **Parameter Section**
     PARAMETER(l50);          // Length at 50% gear selectivity
     PARAMETER(ratio);        // Ratio between l25 and l50
+    PARAMETER(catchability); // Catchability
     PARAMETER(M);            // Coefficient of natural mortality rate power law
     PARAMETER(U);            // Steepness parameter of maturity ogive
-    PARAMETER(catchability); // Catchability
+    PARAMETER(w_repro_max);  // Size of maximum reproductive investment
 
     // Check lengths of data vectors
     TMBAD_ASSERT(bin_widths.size() == bin_boundaries.size() - 1);
@@ -149,8 +160,9 @@ Type objective_function<Type>::operator() ()
     vector<Type> mort = calculate_mort(F_mort, M, d, bin_boundaries);
 
     // **Calculate growth rate**
-    vector<Type> growth = calculate_growth(EReproAndGrowth, repro_prop,
-                                           w_mat, U, bin_boundaries);
+    vector<Type> growth = calculate_growth(EReproAndGrowth, w_mat,
+                                           w_repro_prop, m_minus_n,
+                                           U, bin_boundaries);
 
     // **Calculate steady-state number density**
     vector<Type> N = calculate_N(mort, growth, biomass,
