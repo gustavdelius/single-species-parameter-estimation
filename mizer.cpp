@@ -105,6 +105,8 @@ Type objective_function<Type>::operator() () {
     DATA_VECTOR(R_max);          // length: species
     DATA_VECTOR(rdi);            // length: species
 
+    PARAMETER_VECTOR(dummy);
+
     // Variables to store results
     matrix<Type> feeding_level = mizerFeedingLevel(encounter, intake_max);
     matrix<Type> e = mizerEReproAndGrowth(encounter, feeding_level, alpha, metab);
@@ -124,5 +126,5 @@ Type objective_function<Type>::operator() () {
     REPORT(rdd);
 
     // No likelihood as we're just testing
-    return Type(0.0);
+    return dummy(0)*dummy(0)+dummy(1)*dummy(1);
 }

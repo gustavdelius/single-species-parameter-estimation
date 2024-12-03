@@ -21,40 +21,35 @@ data <- list(
     rdi = getRDI(params)
 )
 
-# Parameters (empty because we're not estimating any parameters here)
-parameters <- list()
+# Parameters (not of interest here but needed for TMB)
+parameters <- list(dummy = rnorm(2))
 
 # Compile the C++ code
 compile("mizer.cpp")
 dyn.load(dynlib("mizer"))
 
 # Create the TMB object
-obj <- MakeADFun(data = data, parameters = parameters, DLL = "mizer", silent = TRUE)
+obj <- MakeADFun(data = data, parameters = parameters, DLL = "mizer")
+
+opt <- nlminb(obj$par, obj$fn, obj$gr,
+              control = list(trace = 3,
+                             rel.tol = 1e-3))
 
 # Run the TMB model to get the outputs
-result <- obj$report()
+rep <- obj$report()
 
-# Extract the outputs from TMB
-feeding_level_Cpp <- result$feeding_level_Cpp
-e_Cpp <- result$e_Cpp
-e_repro_Cpp <- result$e_repro_Cpp
-e_growth_Cpp <- result$e_growth_Cpp
-f_mort_Cpp <- result$f_mort_Cpp
-mort_Cpp <- result$mort_Cpp
-rdd_Cpp <- result$rdd_Cpp
 
 # Compare the outputs
-all.equal(feeding_level_R, feeding_level_Cpp, tolerance = 1e-6)
-all.equal(e_R, e_Cpp, tolerance = 1e-6)
-all.equal(e_repro_R, e_repro_Cpp, tolerance = 1e-6)
-all.equal(e_growth_R, e_growth_Cpp, tolerance = 1e-6)
-all.equal(f_mort_R, f_mort_Cpp, tolerance = 1e-6)
-all.equal(mort_R, mort_Cpp, tolerance = 1e-6)
-all.equal(rdd_R, as.vector(rdd_Cpp), tolerance = 1e-6)
+all.equal(getFeedingLevel(params), rep$feeding_level,
+          tolerance = 1e-6, check.attributes = FALSE)
+all.equal(getEReproAndGrowth(params),rep$e,
+          tolerance = 1e-6, check.attributes = FALSE)
+all.equal(getERepro(params), rep$e_repro,
+          tolerance = 1e-6, check.attributes = FALSE)
+all.equal(getEGrowth(params), rep$e_growth,
+          tolerance = 1e-6, check.attributes = FALSE)
+all.equal(getFMort(params), rep$f_mort,
+          tolerance = 1e-6, check.attributes = FALSE)
+all.equal(getMort(params), rep$mort, tolerance = 1e-6, check.attributes = FALSE)
+all.equal(getRDD(params), rep$rdd, tolerance = 1e-6, check.attributes = FALSE)
 
-# Clean up temporary files
-dyn.unload(dynlib(cpp_file))
-file.remove(cpp_file)
-file.remove(paste0(tools::file_path_sans_ext(cpp_file), ".o"))
-file.remove(paste0(tools::file_path_sans_ext(cpp_file), ".dll"))  # On Windows
-file.remove(paste0(tools::file_path_sans_ext(cpp_file), ".so"))   # On Unix
