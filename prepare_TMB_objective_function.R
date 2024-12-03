@@ -134,6 +134,8 @@ prepare_TMB_objective_function <- function(params, species = 1,
         EReproAndGrowth = EReproAndGrowth,
         repro_prop = repro_prop,
         w_mat = sps$w_mat,
+        m_minus_n = sps$m - sps$n,
+        mu_repro
         d = sps$d,
         yield_lambda = yield_lambda
     )
