@@ -58,17 +58,20 @@ gps$yield_observed
 getYield(p)[sp_select]
 
 # Initial parameter estimates
-initial_params <- c(l50 = gps$l50, ratio = gps$l25 / gps$l50, M = 0, U = 10,
+initial_params <- c(l50 = gps$l50, ratio = gps$l25 / gps$l50, M = 2, U = 10,
                     catchability = gps$catchability)
 
-# Prepare the objective function. See prepare_TMB_objective_function.R for details.
-obj <- prepare_TMB_objective_function(p, species, catch, yield_lambda = 1e7,
-                                      pars = initial_params)
+# Prepare the objective function.
+data <- prepare_data(p, species, catch, yield_lambda = 1e7)
+obj <- MakeADFun(data = data,
+                 parameters = initial_params,
+                 DLL = "objective_function")
+
 # Perform the optimization. This starts with the initial parameter estimates and
 # iteratively updates them to minimize the objective function.
 optim_result <- nlminb(obj$par, obj$fn, obj$gr,
                        lower = lower_bounds, upper = upper_bounds,
-                       control = list(trace = 1))
+                       control = list(trace = 0))
 
 optim_result$par
 report <- obj$report()

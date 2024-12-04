@@ -1,16 +1,8 @@
 #' Prepare a TMB Objective Function for Optimizing Model Parameters
 #'
-#' This function returns an objective function that can be automatically
-#' differentiated, created with `TMB::MakeADFun`, that, given a set of parameters,
-#' calculates the negative log-likelihood of the catch and adds it to a penalty
-#' term that penalizes deviations from the observed yield.
-#'
-#' The reason that we have a function that returns the objective function
-#' instead of simply defining the objective function directly is that we want
-#' to do some pre-processing once and then use the pre-processed data in the
-#' objective function. This is more efficient than doing the pre-processing
-#' every time the objective function is called.
-#'
+#' This function returns a list with the data to be passed to the TMB objective
+#' function. The data includes the observed catch data, the model parameters,
+#' and some precomputed values that are used in the likelihood calculation.
 #' The main preprocessing makes sure that we have a comprehensive set of bins
 #' that cover the entire size range, even though there will not be observations
 #' at all sizes. Missing observations should be interpreted as a 0 count.
@@ -29,8 +21,7 @@
 #'
 #' @return The objective function
 #'
-prepare_TMB_objective_function <- function(params, species = 1,
-                                           catch, yield_lambda, pars) {
+prepare_data <- function(params, species = 1, catch, yield_lambda) {
 
     # Validate MizerParams object
     params <- validParams(params)
@@ -58,21 +49,21 @@ prepare_TMB_objective_function <- function(params, species = 1,
         bin_end = catch$length + catch$dl,
         count = catch$count)
     # Add empty bins at either end to ensure that the full range is covered
-    if (min(catch$length) > 2) {
-        observed_bins <- rbind(observed_bins,
-                               data.frame(bin_start = 1,
-                                          bin_end = min(catch$length),
-                                          count = 0))
-    }
-    max_idx <- which.max(catch$length)
-    max_length <- catch$length[max_idx] + catch$dl[max_idx]
-    l_max <- (sps$w_max / sps$a)^(1/sps$b)
-    if (l_max - max_length > 1) {
-        observed_bins <- rbind(observed_bins,
-                               data.frame(bin_start = max_length,
-                                          bin_end = l_max,
-                                          count = 0))
-    }
+    # if (min(catch$length) > 2) {
+    #     observed_bins <- rbind(observed_bins,
+    #                            data.frame(bin_start = 1,
+    #                                       bin_end = min(catch$length),
+    #                                       count = 0))
+    # }
+    # max_idx <- which.max(catch$length)
+    # max_length <- catch$length[max_idx] + catch$dl[max_idx]
+    # l_max <- (sps$w_max / sps$a)^(1/sps$b)
+    # if (l_max - max_length > 1) {
+    #     observed_bins <- rbind(observed_bins,
+    #                            data.frame(bin_start = max_length,
+    #                                       bin_end = l_max,
+    #                                       count = 0))
+    # }
 
     # Create a comprehensive set of bin edges covering all observed bins
     bin_edges <- sort(unique(c(observed_bins$bin_start, observed_bins$bin_end)))
@@ -124,7 +115,7 @@ prepare_TMB_objective_function <- function(params, species = 1,
     biomass <- getBiomass(params, min_w = min(w_bin_boundaries))[sp_select]
 
     # Prepare data
-    data_list <- list(
+    data <- list(
         counts = counts,
         bin_widths = w_bin_widths,
         bin_boundaries = w_bin_boundaries,
@@ -137,10 +128,7 @@ prepare_TMB_objective_function <- function(params, species = 1,
         d = sps$d,
         yield_lambda = yield_lambda
     )
-
-    MakeADFun(data = data_list,
-              parameters = pars,
-              DLL = "objective_function")
+    return(data)
 }
 
 valid_catch <- function(catch, species) {
