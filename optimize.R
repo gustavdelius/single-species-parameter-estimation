@@ -44,7 +44,7 @@ plotlySpectra(p)
 lower_bounds <- c(l50 = 5, ratio = 0.1, M = 0, U = 1, catchability = 0)
 upper_bounds <- c(l50 = Inf, ratio = 0.99, M = Inf, U = 20, catchability = Inf)
 
-species <- valid_species_arg(p, 8)
+species <- valid_species_arg(p, 2)
 
 sp_select <- sp$species == species
 sps <- sp[sp_select, ]
@@ -77,12 +77,19 @@ optim_result$par
 report <- obj$report()
 
 # Set model to use the optimal parameters
-optimal_params <- update_params(p, species, optim_result$par)
+w_select <- w(p) %in% data$w
+optimal_params <- update_params(p, species, optim_result$par,
+                                data$biomass, w_select)
 # and plot the model catch again against the observed catch
 plot_catch(optimal_params, species, catch)
 
+# Also the yield is approximately matched:
+gps$yield_observed
+report$model_yield
+getYield(optimal_params)[sp_select]
+# If you want a better match you can increase the `yield_lambda` parameter
+
 # Check that TMB code and mizer agree on F_mort
-w_select <- w(p) %in% data$w
 plot(data$w, report$F_mort, type = "l", log = "y")
 lines(data$w, getFMort(optimal_params)[sp_select, w_select], col = "red")
 
@@ -91,13 +98,8 @@ plot(data$w, report$N, type = "l", log = "y")
 lines(data$w, initialN(optimal_params)[sp_select, w_select], col = "red")
 
 # Biomass is matched perfectly, by design
-sps$biomass_observed
-getBiomass(optimal_params)[sp_select]
+data$biomass
+report$total_biomass
+getBiomass(optimal_params, min_w = data$w[1], max_w = max(data$w))[sp_select]
+sum(initialN(optimal_params)[sp_select, w_select] * data$w * data$dw)
 
-# Also the yield is approximately matched:
-gps$yield_observed
-report$model_yield
-getYield(optimal_params)[sp_select]
-sum(report$N * report$F_mort * data$w * data$dw)
-N_model <- initialN(optimal_params)[sp_select, w_select]
-# If you want a better match you can increase the `yield_lambda` parameter

@@ -44,14 +44,6 @@ vector<Type> calculate_N(vector<Type> mort, vector<Type> growth,
         N(i) = N(i - 1) * growth(i - 1) / denominator;
     }
 
-    // Rescale to get observed biomass
-    vector<Type> biomass_in_bins = N * w * dw;
-    N = N * biomass / biomass_in_bins.sum();
-    // Check that rescaling worked
-    biomass_in_bins = N * w * dw;
-    total_biomass = biomass_in_bins.sum();
-    REPORT(total_biomass);
-
     // Check that all elements are finite and non-negative
     TMBAD_ASSERT((N.array().isFinite() && (N.array() >= 0)).all());
 
@@ -100,6 +92,10 @@ Type objective_function<Type>::operator() ()
     // **Calculate steady-state number density**
     vector<Type> N = calculate_N(mort, growth, biomass, w, dw);
 
+    // Rescale to get observed biomass
+    vector<Type> biomass_in_bins = N * w * dw;
+    N = N * biomass / biomass_in_bins.sum();
+
     // **Calculate catch density**
     vector<Type> catch_dens = N * F_mort;
 
@@ -141,6 +137,11 @@ Type objective_function<Type>::operator() ()
     REPORT(model_yield);
     REPORT(N);
     REPORT(F_mort);
+
+    // Check that rescaling worked
+    biomass_in_bins = N * w * dw;
+    Type total_biomass = biomass_in_bins.sum();
+    REPORT(total_biomass);
 
     return nll;
 }

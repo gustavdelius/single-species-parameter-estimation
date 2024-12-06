@@ -6,9 +6,15 @@
 #' steady state of the model and rescales it to match the observed biomass.
 #'
 #' @param params The MizerParams object to update
+#' @param species The species to update. By default the first species in the
+#'   model.
 #' @param pars A named numeric vector of parameter values
+#' @param biomass The observed biomass of the species in the range of the model
+#'   specified by `w_select`.
+#' @param w_select A logical vector indicating which weight bins were used in
+#'   the likelihood calculation
 #' @return The updated MizerParams object
-update_params <- function(params, species = 1, pars) {
+update_params <- function(params, species = 1, pars, biomass, w_select) {
     params <- validParams(params)
     species <- valid_species_arg(params, species, error_on_empty = TRUE)
     if (length(species) > 1) {
@@ -43,8 +49,9 @@ update_params <- function(params, species = 1, pars) {
     # Calculate the new steady state ----
     params <- steadySingleSpecies(params)
     # Rescale it to get the observed biomass
-    total <- sum(params@initial_n[sp_select, ] * params@w * params@dw)
-    factor <- sps$biomass_observed / total
+    total <- sum(params@initial_n[sp_select, w_select] *
+                     params@w[w_select] * params@dw[w_select])
+    factor <- biomass / total
     params@initial_n[sp_select, ] <- params@initial_n[sp_select, ] * factor
 
     return(params)
