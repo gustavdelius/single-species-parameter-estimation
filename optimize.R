@@ -11,7 +11,7 @@ library(dplyr)
 source("plot_catch.R")
 source("cod_model.R")
 source("update_params.R")
-source("prepare_TMB_objective_function.R")
+source("prepare_data.R")
 
 # Compile the model
 compile("objective_function.cpp")
