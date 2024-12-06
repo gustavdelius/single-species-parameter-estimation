@@ -8,7 +8,8 @@
 #' at all sizes. Missing observations should be interpreted as a 0 count.
 #'
 #' @param params A MizerParams object
-#' @param species The species for which the objective function is to be prepared.
+#' @param species The species for which the data is to be prepared. By default
+#'   the first species in the model.
 #' @param catch A data frame containing the observed binned catch data. It must
 #'   contain the following columns:
 #'   * `length`: The start of each bin.
@@ -16,14 +17,12 @@
 #'   * `count`: The observed count for each bin.
 #' @param yield_lambda A parameter that controls the strength of the penalty for
 #'   deviation from the observed yield.
-#' @param pars A named list of starting values for the parameters that will be
-#'   optimized.
 #'
 #' @return The objective function
-#'
-prepare_data <- function(params, species = 1, catch, yield_lambda) {
+#' @export
+prepare_data <- function(params, species = 1, catch, yield_lambda = 1) {
 
-    # Validate MizerParams object
+    # Validate MizerParams object and extract data for the selected species ----
     params <- validParams(params)
     species <- valid_species_arg(params, species, error_on_empty = TRUE)
     if (length(species) > 1) {
@@ -40,8 +39,10 @@ prepare_data <- function(params, species = 1, catch, yield_lambda) {
         stop("The code currently assumes that there is only a single gear for each species.")
     }
 
-    # Validate catch data frame
+    # Validate catch data frame and extract data for the selected species ----
     catch <- valid_catch(catch, species)
+
+    # Fill in missing zero counts ----
 
     # Extract observed bin starts, ends, and counts
     observed_bins <- data.frame(
@@ -81,49 +82,43 @@ prepare_data <- function(params, species = 1, catch, yield_lambda) {
     matched_indices <- match(observed_bin_key, bin_key)
     full_bins$count[matched_indices] <- observed_bins$count
 
-    # Extract counts and compute total observations
+    # Extract counts, bin boundaries and widths ----
     counts <- full_bins$count
-
-    # When we calculate the likelihood, we will need to have values of the
-    # modelled catch density at all bin boundaries. We will use interpolation
-    # for that purpose
-    # Collect all unique bin boundaries for interpolation
     l_bin_boundaries <- unique(c(full_bins$bin_start, full_bins$bin_end))
-    # Give this in terms of weights
     w_bin_boundaries <- sps$a * l_bin_boundaries^sps$b
-
-    # Precompute bin widths
     w_bin_widths <- diff(w_bin_boundaries)
 
-    # Interpolate EReproAndGrowth and repro_prop to all bin boundaries
-    EReproAndGrowth <-
-        approx(w(params), getEReproAndGrowth(params)[sp_select, ],
-               xout = w_bin_boundaries)$y
-    EReproAndGrowth[EReproAndGrowth < 0] <- 0
-    if (anyNA(EReproAndGrowth)) {
-        stop("Interpolation of EReproAndGrowth failed.")
-    }
-    repro_prop <-
-        approx(w(params), repro_prop(params)[sp_select, ],
-               xout = w_bin_boundaries)$y
-    repro_prop[repro_prop > 1] <- 1
-    if (anyNA(repro_prop)) {
-        stop("Interpolation of repro_prop failed.")
-    }
+    w <- w(params)
+    # Select subset of w that totally contains the observed range
+    w_min <- max(w[w <= min(w_bin_boundaries)])
+    w_max <- min(w[w >= max(w_bin_boundaries)])
+    w_select <- w >= w_min & w <= w_max
+    w <- w[w >= w_min & w <= w_max]
+    dw <- dw(params)[w_select]
+    l <- (w / sps$a) ^ (1 / sps$b)
 
-    # Calculate biomass above 2cm
-    biomass <- getBiomass(params, min_w = min(w_bin_boundaries))[sp_select]
+    N <- initialN(params)[sp_select, w_select]
+    biomass <- sum(N * w * dw)
 
-    # Prepare data
+    EReproAndGrowth <- getEReproAndGrowth(params)[sp_select, w_select]
+
+    # Precompute weights for interpolation
+    weight_list <- precompute_weights(w_bin_boundaries, w)
+
+    # Prepare data list for TMB ----
     data <- list(
         counts = counts,
-        bin_widths = w_bin_widths,
-        bin_boundaries = w_bin_boundaries,
-        bin_boundary_lengths = l_bin_boundaries,
+        bin_index = weight_list$bin_index,
+        f_index = weight_list$f_index,
+        coeff_fj = weight_list$coeff_fj,
+        coeff_fj1 = weight_list$coeff_fj1,
+        dw = dw,
+        w = w,
+        l = l,
         yield = gps$yield_observed,
         biomass = biomass,
         EReproAndGrowth = EReproAndGrowth,
-        repro_prop = repro_prop,
+        repro_prop = repro_prop(params)[sp_select, w_select],
         w_mat = sps$w_mat,
         d = sps$d,
         yield_lambda = yield_lambda
@@ -131,6 +126,70 @@ prepare_data <- function(params, species = 1, catch, yield_lambda) {
     return(data)
 }
 
+#' Precompute weights for integration of density over observed bins
+#'
+#' We have a set of weight bins with boundaries `w_bin_boundaries` and need
+#' an efficient way to integrate a probability density to determine a
+#' probability for each bin. The probability density is available at the set
+#' of weights given in the vector `w`. We want to use linear interpolation
+#' for the density between these values. Because the values in `w` do not
+#' align with the values in `w_bin_boundaries` we need to split each bin into
+#' segments. In this function we want to
+#' precompute the weights with which we need to add up the density values to
+#' approximate the integral over each bin.
+precompute_weights <- function(w_bin_boundaries, w) {
+    # Precompute overlaps and weights
+    num_bins <- length(w_bin_boundaries) - 1
+    num_w <- length(w)
+
+    # Initialize lists to store precomputed data
+    bin_index <- c()
+    f_index <- c()
+    coeff_fj <- c()
+    coeff_fj1 <- c()
+
+    for (i in 1:num_bins) { # Loop over bins
+        bin_start <- w_bin_boundaries[i]
+        bin_end <- w_bin_boundaries[i + 1]
+
+        for (j in 1:(num_w - 1)) { # Loop over w
+            x0 <- w[j]
+            x1 <- w[j + 1]
+
+            # Check for overlap
+            segment_start <- max(x0, bin_start)
+            segment_end <- min(x1, bin_end)
+
+            if (segment_start < segment_end) {
+                delta_x <- segment_end - segment_start
+                dx_j <- x1 - x0
+
+                # Calculate interpolation weights
+                w0_k <- (segment_start - x0) / dx_j  # Weight at segment_start
+                w1_k <- (segment_end - x0) / dx_j    # Weight at segment_end
+
+                # Coefficients for f(j) and f(j+1)
+                coeff_fj_k = delta_x * (1 - (w0_k + w1_k)/2)
+                coeff_fj1_k = delta_x * (w0_k + w1_k)/2
+
+                # Store the precomputed data
+                bin_index <- c(bin_index, i - 1)  # Zero-based indexing for C++
+                f_index <- c(f_index, j - 1)      # Zero-based indexing for C++
+                coeff_fj <- c(coeff_fj, coeff_fj_k)
+                coeff_fj1 <- c(coeff_fj1, coeff_fj1_k)
+            }
+        }
+    }
+
+    return(list(
+        bin_index = bin_index,
+        f_index = f_index,
+        coeff_fj = coeff_fj,
+        coeff_fj1 = coeff_fj1
+    ))
+}
+
+#' @export
 valid_catch <- function(catch, species) {
     # Allow "catch" as an alternative name to "count"
     if ("catch" %in% names(catch)) {
