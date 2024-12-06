@@ -9,7 +9,6 @@ library(mizerExperimental)
 library(TMB)
 library(dplyr)
 source("plot_catch.R")
-source("cod_model.R")
 source("update_params.R")
 source("prepare_data.R")
 
@@ -62,10 +61,11 @@ initial_params <- c(l50 = gps$l50, ratio = gps$l25 / gps$l50, M = 2, U = 10,
                     catchability = gps$catchability)
 
 # Prepare the objective function.
-data <- prepare_data(p, species, catch, yield_lambda = 1e7)
+data <- prepare_data(p, species, catch, yield_lambda = 1e3)
 obj <- MakeADFun(data = data,
                  parameters = initial_params,
-                 DLL = "objective_function")
+                 DLL = "objective_function",
+                 silent = TRUE)
 
 # Perform the optimization. This starts with the initial parameter estimates and
 # iteratively updates them to minimize the objective function.
@@ -81,12 +81,23 @@ optimal_params <- update_params(p, species, optim_result$par)
 # and plot the model catch again against the observed catch
 plot_catch(optimal_params, species, catch)
 
-# Also the yield is approximately matched:
-gps$yield_observed
-report$model_yield
-getYield(optimal_params)[sp_select]
-# If you want a better match you can increase the `yield_lambda` parameter
+# Check that TMB code and mizer agree on F_mort
+w_select <- w(p) %in% data$w
+plot(data$w, report$F_mort, type = "l", log = "y")
+lines(data$w, getFMort(optimal_params)[sp_select, w_select], col = "red")
+
+# Check that TMB code and mizer agree on size distribution
+plot(data$w, report$N, type = "l", log = "y")
+lines(data$w, initialN(optimal_params)[sp_select, w_select], col = "red")
 
 # Biomass is matched perfectly, by design
 sps$biomass_observed
 getBiomass(optimal_params)[sp_select]
+
+# Also the yield is approximately matched:
+gps$yield_observed
+report$model_yield
+getYield(optimal_params)[sp_select]
+sum(report$N * report$F_mort * data$w * data$dw)
+N_model <- initialN(optimal_params)[sp_select, w_select]
+# If you want a better match you can increase the `yield_lambda` parameter
